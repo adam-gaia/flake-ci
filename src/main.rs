@@ -11,7 +11,7 @@ use app::App;
 
 mod nix;
 
-const CONFIG_FILE_NAME: &str = "nix-ci.toml";
+const CONFIG_FILE_NAME: &str = "flake-ci.toml";
 
 // TODO: make this into a lib crate. Also add a bin that calls the function and prints the system
 fn system() -> &'static str {
