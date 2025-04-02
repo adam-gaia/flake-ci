@@ -3,13 +3,15 @@ use crate::nix::{run, run_stream};
 use crate::system;
 use anyhow::{Error, Result};
 use log::{debug, info, warn};
+use std::char::MAX;
 use std::collections::HashMap;
+use std::fmt::Display;
 use std::path::Path;
 use std::path::PathBuf;
 use which::which;
 
 const INDENT: &str = "  ";
-const DOTS: &str = "....................";
+const MAX_WIDTH: usize = 80;
 
 #[derive(Debug)]
 pub enum Status {
@@ -43,8 +45,18 @@ fn git_revision() -> Result<String> {
     Ok(revision)
 }
 
+fn format_println<S: AsRef<str> + Display, T: AsRef<str> + Display>(left: S, right: T) {
+    let used_space = left.as_ref().len() + right.as_ref().len();
+    assert!(used_space < MAX_WIDTH, "Line too big");
+    let n = MAX_WIDTH - used_space;
+    let dots = ".".repeat(n);
+    let line = format!("{left}{dots}{right}");
+    println!("{line}");
+}
+
 #[derive(Debug)]
 struct Summary {
+    dry_run: bool,
     skipped_outputs: Vec<String>,
     successes: HashMap<String, Vec<String>>,
     fails: HashMap<String, Vec<String>>,
@@ -54,8 +66,9 @@ struct Summary {
 }
 
 impl Summary {
-    pub fn new(nix_version: String, git_revision: String) -> Self {
+    pub fn new(dry_run: bool, nix_version: String, git_revision: String) -> Self {
         Self {
+            dry_run,
             skipped_outputs: Vec::new(),
             successes: HashMap::new(),
             fails: HashMap::new(),
@@ -82,31 +95,34 @@ impl Summary {
     }
 
     pub fn print(&self) {
-        println!("===========================");
+        let bar = "=".repeat(MAX_WIDTH);
+        println!("{bar}");
         println!("Summary");
 
         for output in &self.skipped_outputs {
-            println!("> {output}{DOTS}skipped (does not exist in flake)")
+            format_println(format!("> {output}"), "skipped (does not exist in flake)");
         }
 
         for (output, jobs) in &self.successes {
             println!("> {output}");
             for job in jobs {
-                println!("{INDENT}- {job}{DOTS}success")
+                format_println(format!("{INDENT}- {job}"), "success");
             }
         }
 
+        let skip_note = if self.dry_run { " (dry run)" } else { "" };
         for (output, jobs) in &self.skips {
             println!("> {output}");
+
             for job in jobs {
-                println!("{INDENT}- {job}{DOTS}skipped")
+                format_println(format!("{INDENT}- {job}"), format!("skipped{skip_note}"));
             }
         }
 
         for (output, jobs) in &self.fails {
             println!("> {output}");
             for job in jobs {
-                println!("{INDENT}- {job}{DOTS}success")
+                format_println(format!("{INDENT}- {job}"), "failed");
             }
         }
 
@@ -173,7 +189,7 @@ impl App {
     pub fn run(&self, dry_run: bool) -> Result<()> {
         let nix_version = nix_version(&self.nix)?;
         let git_revision = git_revision()?;
-        let mut summary = Summary::new(nix_version, git_revision);
+        let mut summary = Summary::new(dry_run, nix_version, git_revision);
 
         for output in &self.config.outputs {
             debug!("type: {output}");
