@@ -33,8 +33,14 @@ fn nix_version(nix: &Path) -> Result<String> {
 
 fn git_revision() -> Result<String> {
     let git = which("git")?;
-    let output = run(&git, &["rev-parse", "--short", "HEAD"])?;
-    Ok(output)
+    let commit_hash = run(&git, &["rev-parse", "--short", "HEAD"])?;
+    let dirty = if run(&git, &["status", "--porcelain"])?.is_empty() {
+        ""
+    } else {
+        "(dirty)"
+    };
+    let revision = format!("{commit_hash}{dirty}");
+    Ok(revision)
 }
 
 #[derive(Debug)]
