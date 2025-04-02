@@ -1,0 +1,24 @@
+[package]
+name = "flake-ci"
+description = "TODO"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/adam-gaia/flake-ci"
+repository = "https://github.com/adam-gaia/flake-ci"
+
+[[bin]]
+name = "ci"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.95"
+clap = { version = "4.5.25", features = ["derive"] }
+derive_more = { version = "2.0.1", features = ["full"] }
+env_logger = "0.11.6"
+log = "0.4.22"
+s-string = "1.0.0"
+serde = { version = "1.0.217", features = ["derive"] }
+serde_json = "1.0.138"
+toml = "0.8.20"
+which = "7.0.2"

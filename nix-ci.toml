@@ -1,0 +1,4 @@
+[env]
+RUST_BACKTRACE = "1"
+CARGO_TERM_COLOR = "1"
+CLICOLOR = "1"

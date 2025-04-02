@@ -1,0 +1,76 @@
+name: CI
+permissions:
+  contents: read
+on:
+  pull_request:
+  push:
+    branches:
+      - "main"
+env:
+  RUST_BACKTRACE: 1
+  CARGO_TERM_COLOR: always
+  CLICOLOR: 1
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v4
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+      - name: Use nix devshell
+        uses: nicknovitski/nix-develop@v1
+        with:
+          arguments: --impure
+      - name: fmt
+        run: just ci-fmt
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v4
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+      - name: Set up Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@main
+      - name: Use nix devshell
+        uses: nicknovitski/nix-develop@v1
+        with:
+          arguments: --impure
+      - name: build
+        run: just ci-build
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v4
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+      - name: Set up Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@main
+      - name: Use nix devshell
+        uses: nicknovitski/nix-develop@v1
+        with:
+          arguments: --impure
+      - name: test
+        run: just ci-test
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v4
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+      - name: Set up Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@main
+      - name: Use nix devshell
+        uses: nicknovitski/nix-develop@v1
+        with:
+          arguments: --impure
+      - name: Coverage
+        run: cargo tarpaulin --output-dir coverage --out lcov
+    #- name: Pulish to Coveralls
+    #  run: echo "TODO"
