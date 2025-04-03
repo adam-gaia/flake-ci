@@ -2,9 +2,11 @@ use crate::config::{Config, System};
 use crate::nix::{run, run_stream};
 use anyhow::{bail, Result};
 use log::{debug, error, info, warn};
+use owo_colors::{OwoColorize, Style};
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::fs;
+use std::ops::Deref;
 use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::path::PathBuf;
@@ -12,6 +14,8 @@ use which::which;
 
 const INDENT: &str = "  ";
 const MAX_WIDTH: usize = 80;
+const STATUS_PREFIX: &str = "> ";
+const SUBSTATUS_PREFIX: &str = "- ";
 
 #[derive(Debug)]
 pub enum Status {
@@ -39,19 +43,10 @@ fn git_revision() -> Result<String> {
     let dirty = if run(&git, &["status", "--porcelain"])?.is_empty() {
         ""
     } else {
-        "(dirty)"
+        " (dirty)"
     };
     let revision = format!("{commit_hash}{dirty}");
     Ok(revision)
-}
-
-fn format_println<S: AsRef<str> + Display, T: AsRef<str> + Display>(left: S, right: T) {
-    let used_space = left.as_ref().len() + right.as_ref().len();
-    assert!(used_space < MAX_WIDTH, "Line too big");
-    let n = MAX_WIDTH - used_space;
-    let dots = ".".repeat(n);
-    let line = format!("{left}{dots}{right}");
-    println!("{line}");
 }
 
 fn rel_to_cwd(p: &Path, cwd: &Path) -> String {
@@ -106,48 +101,100 @@ impl Summary {
         register(&mut self.skips, output_name, job_name);
     }
 
+    fn print_line(left: &str, right: &str, style: Option<&Style>, extra_note: Option<&str>) {
+        let extra_note = match extra_note {
+            Some(note) => &format!(" {note}"),
+            None => "",
+        };
+
+        let used_space = left.len() + right.len() + extra_note.len();
+        assert!(used_space < MAX_WIDTH, "Line too big");
+
+        let dots = if right.is_empty() {
+            String::new()
+        } else {
+            let n = MAX_WIDTH - used_space;
+            ".".repeat(n)
+        };
+
+        match style {
+            Some(style) => {
+                println!(
+                    "{left}{dots}{}{extra_note}",
+                    right.if_supports_color(owo_colors::Stream::Stdout, |text| text.style(*style)),
+                )
+            }
+            None => {
+                println!("{left}{dots}{right}{extra_note}");
+            }
+        };
+    }
+
+    fn print_status_line(left: &str, right: &str, style: Option<&Style>, extra_note: Option<&str>) {
+        assert_eq!(STATUS_PREFIX.len(), INDENT.len());
+        let left = format!("{STATUS_PREFIX}{left}");
+        Summary::print_line(&left, right, style, extra_note);
+    }
+
+    fn print_substatus_line(left: &str, right: &str, style: &Style, extra_note: Option<&str>) {
+        assert_eq!(SUBSTATUS_PREFIX.len(), INDENT.len());
+        let left = format!("{INDENT}{SUBSTATUS_PREFIX}{left}");
+        Summary::print_line(&left, right, Some(style), extra_note);
+    }
+
+    fn print_substatus_attribute(name: &str, attribute: &str) {
+        println!("{INDENT}{name}: {attribute}");
+    }
+
+    fn print_version(slug: &str, version: &str) {
+        println!(
+            "{slug}: {}",
+            version.if_supports_color(owo_colors::Stream::Stdout, |text| text.bold())
+        )
+    }
+
     pub fn print(&self) {
+        let yellow = Style::new().yellow().bold();
+        let green = Style::new().green().bold();
+        let red = Style::new().red().bold();
+
         let bar = "=".repeat(MAX_WIDTH);
         println!("{bar}");
         println!("Summary");
 
         for output in &self.skipped_outputs {
-            format_println(format!("> {output}"), "skipped (does not exist in flake)");
+            Summary::print_status_line(output, "skipped", Some(&yellow), Some("(not found)"));
         }
 
         for (output, jobs) in &self.successes {
-            println!("> {output}");
+            Summary::print_status_line(output, "", None, None);
             for job in jobs {
                 let job_name = &job.0;
-                format_println(format!("{INDENT}- {job_name}"), "success");
+                Summary::print_substatus_line(job_name, "success", &green, None);
+
                 if let Some(artifact) = &job.1 {
                     let artifact = rel_to_cwd(artifact, &self.cwd);
-                    println!("{INDENT}{INDENT}artifact: {artifact}");
+                    Summary::print_substatus_attribute("artifact", &artifact);
                 }
             }
         }
 
-        let mut skip_note = String::from("skipped");
-        if self.dry_run {
-            skip_note.push_str(" (dry run)")
-        }
         for (output, jobs) in &self.skips {
-            println!("> {output}");
-
+            Summary::print_status_line(output, "", None, None);
             for job in jobs {
-                format_println(format!("{INDENT}- {job}"), &skip_note);
+                Summary::print_substatus_line(job, "skipped", &yellow, Some("(dry run)"));
             }
         }
 
         for (output, jobs) in &self.fails {
             println!("> {output}");
             for job in jobs {
-                format_println(format!("{INDENT}- {job}"), "failed");
+                Summary::print_substatus_line(job, "failed", &red, None);
             }
         }
 
-        println!("Git revision: {}", self.git_revision);
-        println!("Nix version: '{}'", self.nix_version);
+        Summary::print_version("Git revision", &self.git_revision);
+        Summary::print_version("Nix version:", &self.nix_version);
     }
 }
 
@@ -213,7 +260,9 @@ impl App {
         Ok(status)
     }
 
-    pub fn run(&self, dry_run: bool) -> Result<()> {
+    pub fn run(&self, dry_run: bool) -> Result<bool> {
+        let mut all_succeeded = true;
+
         let nix_version = nix_version(&self.nix)?;
         let git_revision = git_revision()?;
         let mut summary = Summary::new(self.cwd.to_path_buf(), dry_run, nix_version, git_revision);
@@ -260,6 +309,7 @@ impl App {
                             summary.register_skip(output.to_string(), derivation);
                         }
                         Status::Fail => {
+                            all_succeeded = false;
                             summary.register_fail(output.to_string(), derivation);
                         }
                         Status::Success => {
@@ -298,6 +348,6 @@ impl App {
         // TODO: json output option
         summary.print();
 
-        Ok(())
+        Ok(all_succeeded)
     }
 }

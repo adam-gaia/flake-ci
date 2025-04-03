@@ -1,7 +1,7 @@
 use anyhow::{bail, Result};
 use clap::Parser;
 use log::debug;
-use std::env;
+use std::{env, fs, path::PathBuf};
 
 mod config;
 use config::{Config, System};
@@ -32,16 +32,25 @@ fn system() -> Result<System> {
 
 #[derive(Debug, Parser)]
 struct Cli {
-    #[clap(short, long)]
+    #[clap(long)]
     dry_run: bool,
+    #[clap(long)]
+    dir: Option<PathBuf>,
 }
 
 fn main() -> Result<()> {
     env_logger::init();
     let args = Cli::parse();
+    let dir = match args.dir {
+        Some(dir) => {
+            let dir = fs::canonicalize(dir)?;
+            env::set_current_dir(&dir)?;
+            dir
+        }
+        None => env::current_dir()?,
+    };
 
-    let cwd = env::current_dir()?;
-    let config_file = cwd.join(CONFIG_FILE_NAME);
+    let config_file = dir.join(CONFIG_FILE_NAME);
     let config = if config_file.is_file() {
         Config::from_file(&config_file)?
     } else {
@@ -49,8 +58,9 @@ fn main() -> Result<()> {
     };
 
     let system = system()?;
-    let app = App::with_config(cwd, system, config)?;
-    app.run(args.dry_run)?;
-
+    let app = App::with_config(dir, system, config)?;
+    if !app.run(args.dry_run)? {
+        std::process::exit(1);
+    }
     Ok(())
 }

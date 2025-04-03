@@ -25,6 +25,10 @@ serde_with = "3.12.0"
 toml = "0.8.20"
 which = "7.0.2"
 winnow = "0.7.4"
+owo-colors = { version = "4.2.0", features = [
+  "supports-color",
+  "supports-colors",
+] }
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"
