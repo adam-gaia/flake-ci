@@ -48,7 +48,8 @@ fn main() -> Result<()> {
         Config::default()
     };
 
-    let app = App::with_config(cwd, config)?;
+    let system = system()?;
+    let app = App::with_config(cwd, system, config)?;
     app.run(args.dry_run)?;
 
     Ok(())

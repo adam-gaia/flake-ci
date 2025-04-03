@@ -1,6 +1,5 @@
 use crate::config::{Config, System};
 use crate::nix::{run, run_stream};
-use crate::system;
 use anyhow::{bail, Result};
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
@@ -163,11 +162,10 @@ pub struct App {
 }
 
 impl App {
-    pub fn with_config(cwd: PathBuf, config: Config) -> Result<Self> {
+    pub fn with_config(cwd: PathBuf, system: System, config: Config) -> Result<Self> {
         let output_dir = cwd.join(config.artifact_dir());
         let nix_result_dir = cwd.join("result");
         let nix = which::which("nix")?;
-        let system = system()?;
         Ok(Self {
             cwd,
             output_dir,
