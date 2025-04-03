@@ -29,6 +29,7 @@ owo-colors = { version = "4.2.0", features = [
   "supports-color",
   "supports-colors",
 ] }
+pathdiff = "0.2.3"
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"

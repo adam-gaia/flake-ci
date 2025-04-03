@@ -50,8 +50,11 @@ fn git_revision() -> Result<String> {
 }
 
 fn rel_to_cwd(p: &Path, cwd: &Path) -> String {
-    let cwd = cwd.display().to_string();
-    p.display().to_string().replace(&cwd, ".")
+    let mut diff = pathdiff::diff_paths(p, cwd).unwrap().display().to_string();
+    if !diff.starts_with(".") {
+        diff = format!("./{}", diff);
+    }
+    diff
 }
 
 #[derive(Debug)]
@@ -143,7 +146,7 @@ impl Summary {
     }
 
     fn print_substatus_attribute(name: &str, attribute: &str) {
-        println!("{INDENT}{name}: {attribute}");
+        println!("{INDENT}{INDENT}{name}: {attribute}");
     }
 
     fn print_version(slug: &str, version: &str) {
@@ -201,6 +204,7 @@ impl Summary {
 #[derive(Debug)]
 pub struct App {
     cwd: PathBuf,
+    working_dir: PathBuf,
     output_dir: PathBuf,
     nix_result_dir: PathBuf,
     config: Config,
@@ -209,12 +213,18 @@ pub struct App {
 }
 
 impl App {
-    pub fn with_config(cwd: PathBuf, system: System, config: Config) -> Result<Self> {
-        let output_dir = cwd.join(config.artifact_dir());
-        let nix_result_dir = cwd.join("result");
+    pub fn with_config(
+        cwd: PathBuf,
+        working_dir: PathBuf,
+        system: System,
+        config: Config,
+    ) -> Result<Self> {
+        let output_dir = working_dir.join(config.artifact_dir());
+        let nix_result_dir = working_dir.join("result");
         let nix = which::which("nix")?;
         Ok(Self {
             cwd,
+            working_dir,
             output_dir,
             nix_result_dir,
             config,

@@ -40,17 +40,19 @@ struct Cli {
 
 fn main() -> Result<()> {
     env_logger::init();
+    let cwd = env::current_dir()?;
+
     let args = Cli::parse();
-    let dir = match args.dir {
+    let working_dir = match args.dir {
         Some(dir) => {
             let dir = fs::canonicalize(dir)?;
             env::set_current_dir(&dir)?;
             dir
         }
-        None => env::current_dir()?,
+        None => cwd.clone(),
     };
 
-    let config_file = dir.join(CONFIG_FILE_NAME);
+    let config_file = working_dir.join(CONFIG_FILE_NAME);
     let config = if config_file.is_file() {
         Config::from_file(&config_file)?
     } else {
@@ -58,7 +60,7 @@ fn main() -> Result<()> {
     };
 
     let system = system()?;
-    let app = App::with_config(dir, system, config)?;
+    let app = App::with_config(cwd, working_dir, system, config)?;
     if !app.run(args.dry_run)? {
         std::process::exit(1);
     }
