@@ -13,7 +13,6 @@ use std::path::PathBuf;
 use which::which;
 
 const INDENT: &str = "  ";
-const MAX_WIDTH: usize = 80;
 const STATUS_PREFIX: &str = "> ";
 const SUBSTATUS_PREFIX: &str = "- ";
 
@@ -67,10 +66,17 @@ struct Summary {
     skips: HashMap<String, Vec<String>>,
     nix_version: String,
     git_revision: String,
+    width: usize,
 }
 
 impl Summary {
-    pub fn new(cwd: PathBuf, dry_run: bool, nix_version: String, git_revision: String) -> Self {
+    pub fn new(
+        cwd: PathBuf,
+        dry_run: bool,
+        nix_version: String,
+        git_revision: String,
+        width: usize,
+    ) -> Self {
         Self {
             cwd,
             dry_run,
@@ -80,6 +86,7 @@ impl Summary {
             skips: HashMap::new(),
             nix_version,
             git_revision,
+            width,
         }
     }
 
@@ -104,19 +111,19 @@ impl Summary {
         register(&mut self.skips, output_name, job_name);
     }
 
-    fn print_line(left: &str, right: &str, style: Option<&Style>, extra_note: Option<&str>) {
+    fn print_line(&self, left: &str, right: &str, style: Option<&Style>, extra_note: Option<&str>) {
         let extra_note = match extra_note {
             Some(note) => &format!(" {note}"),
             None => "",
         };
 
         let used_space = left.len() + right.len() + extra_note.len();
-        assert!(used_space < MAX_WIDTH, "Line too big");
+        assert!(used_space < super::MAX_WIDTH, "Line too big");
 
         let dots = if right.is_empty() {
             String::new()
         } else {
-            let n = MAX_WIDTH - used_space;
+            let n = super::MAX_WIDTH - used_space;
             ".".repeat(n)
         };
 
@@ -133,16 +140,28 @@ impl Summary {
         };
     }
 
-    fn print_status_line(left: &str, right: &str, style: Option<&Style>, extra_note: Option<&str>) {
+    fn print_status_line(
+        &self,
+        left: &str,
+        right: &str,
+        style: Option<&Style>,
+        extra_note: Option<&str>,
+    ) {
         assert_eq!(STATUS_PREFIX.len(), INDENT.len());
         let left = format!("{STATUS_PREFIX}{left}");
-        Summary::print_line(&left, right, style, extra_note);
+        self.print_line(&left, right, style, extra_note);
     }
 
-    fn print_substatus_line(left: &str, right: &str, style: &Style, extra_note: Option<&str>) {
+    fn print_substatus_line(
+        &self,
+        left: &str,
+        right: &str,
+        style: &Style,
+        extra_note: Option<&str>,
+    ) {
         assert_eq!(SUBSTATUS_PREFIX.len(), INDENT.len());
         let left = format!("{INDENT}{SUBSTATUS_PREFIX}{left}");
-        Summary::print_line(&left, right, Some(style), extra_note);
+        self.print_line(&left, right, Some(style), extra_note);
     }
 
     fn print_substatus_attribute(name: &str, attribute: &str) {
@@ -161,18 +180,18 @@ impl Summary {
         let green = Style::new().green().bold();
         let red = Style::new().red().bold();
 
-        let bar = "=".repeat(MAX_WIDTH);
+        let bar = "=".repeat(self.width);
         println!("{bar}");
         println!("Summary");
 
         for output in &self.skipped_outputs {
-            Summary::print_status_line(output, "skipped", Some(&yellow), Some("(not found)"));
+            self.print_status_line(output, "skipped", Some(&yellow), Some("(not found)"));
         }
 
         for (output, jobs) in &self.successes {
-            Summary::print_status_line(output, "", None, None);
+            self.print_status_line(output, "", None, None);
             for (job_name, artifact) in jobs {
-                Summary::print_substatus_line(job_name, "success", &green, None);
+                self.print_substatus_line(job_name, "success", &green, None);
 
                 if let Some(artifact) = artifact {
                     let artifact = rel_to_cwd(artifact, &self.cwd);
@@ -182,16 +201,16 @@ impl Summary {
         }
 
         for (output, jobs) in &self.skips {
-            Summary::print_status_line(output, "", None, None);
+            self.print_status_line(output, "", None, None);
             for job in jobs {
-                Summary::print_substatus_line(job, "skipped", &yellow, Some("(dry run)"));
+                self.print_substatus_line(job, "skipped", &yellow, Some("(dry run)"));
             }
         }
 
         for (output, jobs) in &self.fails {
             println!("> {output}");
             for (job, log_command) in jobs {
-                Summary::print_substatus_line(job, "failed", &red, None);
+                self.print_substatus_line(job, "failed", &red, None);
                 Summary::print_substatus_attribute("log command", &log_command);
             }
         }
@@ -210,6 +229,7 @@ pub struct App {
     config: Config,
     nix: PathBuf,
     system: System,
+    width: usize,
 }
 
 impl App {
@@ -217,6 +237,7 @@ impl App {
         cwd: PathBuf,
         working_dir: PathBuf,
         system: System,
+        width: usize,
         config: Config,
     ) -> Result<Self> {
         let output_dir = working_dir.join(config.artifact_dir());
@@ -230,6 +251,7 @@ impl App {
             config,
             nix,
             system,
+            width,
         })
     }
 
@@ -275,7 +297,13 @@ impl App {
 
         let nix_version = nix_version(&self.nix)?;
         let git_revision = git_revision()?;
-        let mut summary = Summary::new(self.cwd.to_path_buf(), dry_run, nix_version, git_revision);
+        let mut summary = Summary::new(
+            self.cwd.to_path_buf(),
+            dry_run,
+            nix_version,
+            git_revision,
+            self.width,
+        );
 
         if self.output_dir.is_dir() {
             log::warn!("Removing old artifact dir");

@@ -11,6 +11,7 @@ use app::App;
 
 mod nix;
 
+const MAX_WIDTH: usize = 100;
 const CONFIG_FILE_NAME: &str = "flake-ci.toml";
 
 // TODO: make this into a lib crate. Also add a bin that calls the function and prints the system
@@ -60,7 +61,12 @@ fn main() -> Result<()> {
     };
 
     let system = system()?;
-    let app = App::with_config(cwd, working_dir, system, config)?;
+    let width = match term_size::dimensions() {
+        Some((w, _)) => std::cmp::min(w, MAX_WIDTH),
+        None => MAX_WIDTH,
+    };
+
+    let app = App::with_config(cwd, working_dir, system, width, config)?;
     if !app.run(args.dry_run)? {
         std::process::exit(1);
     }
