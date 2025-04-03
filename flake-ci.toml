@@ -1,4 +1,21 @@
+[general]
+artifact-dir = "dist"
+
 [env]
 RUST_BACKTRACE = "1"
 CARGO_TERM_COLOR = "1"
 CLICOLOR = "1"
+
+[build]
+outputs = [
+  "checks",
+  "packages",
+  "devShells",
+  "homeConfigurations",
+  "darwinConfigurations",
+  "nixosConfigurations",
+  "defaultPackage",
+  "devShell",
+]
+artifacts = ["packages.*.!formatter"]
+systems = ["x86_64-linux", "x86_64-darwin"]

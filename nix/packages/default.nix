@@ -20,11 +20,3 @@
     });
 in
   crate
-# // {
-#   passthru =
-#     my-crate.passthru
-#     // {
-#       tests = checks;
-#     };
-# }
-

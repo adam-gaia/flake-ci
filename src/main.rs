@@ -4,7 +4,7 @@ use log::debug;
 use std::env;
 
 mod config;
-use config::Config;
+use config::{Config, System};
 
 mod app;
 use app::App;
@@ -14,17 +14,20 @@ mod nix;
 const CONFIG_FILE_NAME: &str = "flake-ci.toml";
 
 // TODO: make this into a lib crate. Also add a bin that calls the function and prints the system
-fn system() -> &'static str {
-    match (env::consts::ARCH, env::consts::OS) {
-        ("x86_64", "linux") => "x86_64-linux",
-        ("aarch64", "linux") => "aarch64-linux",
-        ("x86_64", "macos") => "x86_64-darwin",
-        ("aarch64", "macos") => "aarch64-darwin",
-        ("x86", "windows") => "i686-windows",
-        ("x86_64", "windows") => "x86_64-windows",
-        ("aarch64", "windows") => "aarch64-windows",
-        _ => "unknown",
-    }
+fn system() -> Result<System> {
+    let arch = env::consts::ARCH;
+    let os = env::consts::OS;
+    let system = match (arch, os) {
+        ("x86_64", "linux") => System::x86_linux(),
+        ("aarch64", "linux") => System::arm_linux(),
+        ("x86_64", "macos") => System::x86_darwin(),
+        ("aarch64", "macos") => System::arm_darwin(),
+        ("x86", "windows") => System::x86_windows(),
+        ("x86_64", "windows") => System::x86_windows(),
+        ("aarch64", "windows") => System::arm_windows(),
+        _ => bail!("Unknown system: arch: '{arch}, os: '{os}'"),
+    };
+    Ok(system)
 }
 
 #[derive(Debug, Parser)]
@@ -45,7 +48,7 @@ fn main() -> Result<()> {
         Config::default()
     };
 
-    let app = App::with_config(config)?;
+    let app = App::with_config(cwd, config)?;
     app.run(args.dry_run)?;
 
     Ok(())
