@@ -63,7 +63,7 @@ struct Summary {
     dry_run: bool,
     skipped_outputs: Vec<String>,
     successes: HashMap<String, Vec<(String, Option<PathBuf>)>>,
-    fails: HashMap<String, Vec<String>>,
+    fails: HashMap<String, Vec<(String, String)>>,
     skips: HashMap<String, Vec<String>>,
     nix_version: String,
     git_revision: String,
@@ -96,8 +96,8 @@ impl Summary {
         register(&mut self.successes, output_name, (job_name, artifact));
     }
 
-    pub fn register_fail(&mut self, output_name: String, job_name: String) {
-        register(&mut self.fails, output_name, job_name);
+    pub fn register_fail(&mut self, output_name: String, job_name: String, log_command: String) {
+        register(&mut self.fails, output_name, (job_name, log_command));
     }
 
     pub fn register_skip(&mut self, output_name: String, job_name: String) {
@@ -171,11 +171,10 @@ impl Summary {
 
         for (output, jobs) in &self.successes {
             Summary::print_status_line(output, "", None, None);
-            for job in jobs {
-                let job_name = &job.0;
+            for (job_name, artifact) in jobs {
                 Summary::print_substatus_line(job_name, "success", &green, None);
 
-                if let Some(artifact) = &job.1 {
+                if let Some(artifact) = artifact {
                     let artifact = rel_to_cwd(artifact, &self.cwd);
                     Summary::print_substatus_attribute("artifact", &artifact);
                 }
@@ -191,8 +190,9 @@ impl Summary {
 
         for (output, jobs) in &self.fails {
             println!("> {output}");
-            for job in jobs {
+            for (job, log_command) in jobs {
                 Summary::print_substatus_line(job, "failed", &red, None);
+                Summary::print_substatus_attribute("log command", &log_command);
             }
         }
 
@@ -320,7 +320,8 @@ impl App {
                         }
                         Status::Fail => {
                             all_succeeded = false;
-                            summary.register_fail(output.to_string(), derivation);
+                            let log_command = format!("`nix log {path}`");
+                            summary.register_fail(output.to_string(), derivation, log_command);
                         }
                         Status::Success => {
                             let artifact = if !dry_run
