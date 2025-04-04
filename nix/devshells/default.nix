@@ -1,5 +1,7 @@
 {
+  flake,
   inputs,
+  perSystem,
   pkgs,
 }: let
   crateBuilder = inputs.self.lib.mkCrateBuilder pkgs;
@@ -43,6 +45,8 @@ in
         bacon
         oranda
         vale
+        perSystem.system-str.default
+        flake.packages.${pkgs.system}.default
       ]
       # Include the extra packages we use to build our crate
       ++ commonArgs.buildInputs

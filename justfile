@@ -1,3 +1,5 @@
+system := `system-str`
+
 default:
     @just --list
 
@@ -18,23 +20,5 @@ test: build
 fmt:
     treefmt
 
-ci-fmt:
-    treefmt --ci
-
-ci-check:
-    cargo lcheck
-    cargo lclippy --all-targets -- --deny warnings
-
-ci-build:
-    cargo lbuild
-
-ci-test: ci-build
-    cargo lbuild --tests
-    cargo nextest run
-
-ci-doctests:
-    # cargo-nextest doesn't yet support doctests
-    # https://github.com/nextest-rs/nextest/issues/16
-    cargo ltest --doc
-
-ci: ci-test
+ci:
+    flake-ci

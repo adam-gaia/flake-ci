@@ -1,6 +1,9 @@
-{pkgs}:
+{
+  flake,
+  pkgs,
+}:
 pkgs.mkShellNoCC {
   packages = [
-    # inputs.self.packages.${pkgs.system}.default
+    flake.packages.${pkgs.system}.default
   ];
 }
