@@ -16,7 +16,6 @@
     commonArgs = {
       inherit src;
       strictDeps = true;
-      pname = "flake";
 
       buildInputs =
         [
