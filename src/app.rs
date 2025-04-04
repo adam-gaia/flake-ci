@@ -1,12 +1,10 @@
 use crate::config::{Config, System};
 use crate::nix::{run, run_stream};
 use anyhow::{bail, Result};
-use log::{debug, error, info, warn};
+use log::{debug, info, warn};
 use owo_colors::{OwoColorize, Style};
 use std::collections::HashMap;
-use std::fmt::Display;
 use std::fs;
-use std::ops::Deref;
 use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::path::PathBuf;
@@ -23,11 +21,11 @@ pub enum Status {
     Fail,
 }
 
-fn register<T>(map: &mut HashMap<String, Vec<T>>, output_name: String, job: T) {
-    if !map.contains_key(&output_name) {
-        map.insert(output_name.clone(), Vec::new());
+fn register<T>(map: &mut HashMap<String, Vec<T>>, output_name: &str, job: T) {
+    if !map.contains_key(output_name) {
+        map.insert(output_name.to_string(), Vec::new());
     }
-    map.get_mut(&output_name).unwrap().push(job);
+    map.get_mut(output_name).unwrap().push(job);
 }
 
 fn nix_version(nix: &Path) -> Result<String> {
@@ -50,8 +48,8 @@ fn git_revision() -> Result<String> {
 
 fn rel_to_cwd(p: &Path, cwd: &Path) -> String {
     let mut diff = pathdiff::diff_paths(p, cwd).unwrap().display().to_string();
-    if !diff.starts_with(".") {
-        diff = format!("./{}", diff);
+    if !diff.starts_with('.') {
+        diff = format!("./{diff}");
     }
     diff
 }
@@ -59,7 +57,6 @@ fn rel_to_cwd(p: &Path, cwd: &Path) -> String {
 #[derive(Debug)]
 struct Summary {
     cwd: PathBuf,
-    dry_run: bool,
     skipped_outputs: Vec<String>,
     successes: HashMap<String, Vec<(String, Option<PathBuf>)>>,
     fails: HashMap<String, Vec<(String, String)>>,
@@ -70,16 +67,9 @@ struct Summary {
 }
 
 impl Summary {
-    pub fn new(
-        cwd: PathBuf,
-        dry_run: bool,
-        nix_version: String,
-        git_revision: String,
-        width: usize,
-    ) -> Self {
+    pub fn new(cwd: PathBuf, nix_version: String, git_revision: String, width: usize) -> Self {
         Self {
             cwd,
-            dry_run,
             skipped_outputs: Vec::new(),
             successes: HashMap::new(),
             fails: HashMap::new(),
@@ -96,22 +86,22 @@ impl Summary {
 
     pub fn register_success(
         &mut self,
-        output_name: String,
+        output_name: &str,
         job_name: String,
         artifact: Option<PathBuf>,
     ) {
         register(&mut self.successes, output_name, (job_name, artifact));
     }
 
-    pub fn register_fail(&mut self, output_name: String, job_name: String, log_command: String) {
+    pub fn register_fail(&mut self, output_name: &str, job_name: String, log_command: String) {
         register(&mut self.fails, output_name, (job_name, log_command));
     }
 
-    pub fn register_skip(&mut self, output_name: String, job_name: String) {
+    pub fn register_skip(&mut self, output_name: &str, job_name: String) {
         register(&mut self.skips, output_name, job_name);
     }
 
-    fn print_line(&self, left: &str, right: &str, style: Option<&Style>, extra_note: Option<&str>) {
+    fn print_line(left: &str, right: &str, style: Option<&Style>, extra_note: Option<&str>) {
         let extra_note = match extra_note {
             Some(note) => &format!(" {note}"),
             None => "",
@@ -132,7 +122,7 @@ impl Summary {
                 println!(
                     "{left}{dots}{}{extra_note}",
                     right.if_supports_color(owo_colors::Stream::Stdout, |text| text.style(*style)),
-                )
+                );
             }
             None => {
                 println!("{left}{dots}{right}{extra_note}");
@@ -140,28 +130,16 @@ impl Summary {
         };
     }
 
-    fn print_status_line(
-        &self,
-        left: &str,
-        right: &str,
-        style: Option<&Style>,
-        extra_note: Option<&str>,
-    ) {
+    fn print_status_line(left: &str, right: &str, style: Option<&Style>, extra_note: Option<&str>) {
         assert_eq!(STATUS_PREFIX.len(), INDENT.len());
         let left = format!("{STATUS_PREFIX}{left}");
-        self.print_line(&left, right, style, extra_note);
+        Summary::print_line(&left, right, style, extra_note);
     }
 
-    fn print_substatus_line(
-        &self,
-        left: &str,
-        right: &str,
-        style: &Style,
-        extra_note: Option<&str>,
-    ) {
+    fn print_substatus_line(left: &str, right: &str, style: &Style, extra_note: Option<&str>) {
         assert_eq!(SUBSTATUS_PREFIX.len(), INDENT.len());
         let left = format!("{INDENT}{SUBSTATUS_PREFIX}{left}");
-        self.print_line(&left, right, Some(style), extra_note);
+        Summary::print_line(&left, right, Some(style), extra_note);
     }
 
     fn print_substatus_attribute(name: &str, attribute: &str) {
@@ -172,7 +150,7 @@ impl Summary {
         println!(
             "{slug}: {}",
             version.if_supports_color(owo_colors::Stream::Stdout, |text| text.bold())
-        )
+        );
     }
 
     pub fn print(&self) {
@@ -185,13 +163,13 @@ impl Summary {
         println!("Summary");
 
         for output in &self.skipped_outputs {
-            self.print_status_line(output, "skipped", Some(&yellow), Some("(not found)"));
+            Summary::print_status_line(output, "skipped", Some(&yellow), Some("(not found)"));
         }
 
         for (output, jobs) in &self.successes {
-            self.print_status_line(output, "", None, None);
+            Summary::print_status_line(output, "", None, None);
             for (job_name, artifact) in jobs {
-                self.print_substatus_line(job_name, "success", &green, None);
+                Summary::print_substatus_line(job_name, "success", &green, None);
 
                 if let Some(artifact) = artifact {
                     let artifact = rel_to_cwd(artifact, &self.cwd);
@@ -201,17 +179,17 @@ impl Summary {
         }
 
         for (output, jobs) in &self.skips {
-            self.print_status_line(output, "", None, None);
+            Summary::print_status_line(output, "", None, None);
             for job in jobs {
-                self.print_substatus_line(job, "skipped", &yellow, Some("(dry run)"));
+                Summary::print_substatus_line(job, "skipped", &yellow, Some("(dry run)"));
             }
         }
 
         for (output, jobs) in &self.fails {
             println!("> {output}");
             for (job, log_command) in jobs {
-                self.print_substatus_line(job, "failed", &red, None);
-                Summary::print_substatus_attribute("log command", &log_command);
+                Summary::print_substatus_line(job, "failed", &red, None);
+                Summary::print_substatus_attribute("log command", log_command);
             }
         }
 
@@ -223,7 +201,6 @@ impl Summary {
 #[derive(Debug)]
 pub struct App {
     cwd: PathBuf,
-    working_dir: PathBuf,
     output_dir: PathBuf,
     nix_result_dir: PathBuf,
     config: Config,
@@ -235,7 +212,7 @@ pub struct App {
 impl App {
     pub fn with_config(
         cwd: PathBuf,
-        working_dir: PathBuf,
+        working_dir: &Path,
         system: System,
         width: usize,
         config: Config,
@@ -245,7 +222,6 @@ impl App {
         let nix = which::which("nix")?;
         Ok(Self {
             cwd,
-            working_dir,
             output_dir,
             nix_result_dir,
             config,
@@ -255,10 +231,10 @@ impl App {
         })
     }
 
-    fn attributes(&self, ttype: &str, system: &System) -> Result<Vec<String>> {
+    fn attributes(&self, ttype: &str, system: System) -> Result<Vec<String>> {
         let args = &[
             "eval",
-            &format!(".#{ttype}.{}", system),
+            &format!(".#{ttype}.{system}"),
             "--apply",
             "builtins.attrNames",
             "--json",
@@ -268,10 +244,10 @@ impl App {
         Ok(attributes)
     }
 
-    fn derivation_path(&self, ttype: &str, system: &System, attribute: &str) -> Result<String> {
+    fn derivation_path(&self, ttype: &str, system: System, attribute: &str) -> Result<String> {
         let args = &[
             "eval",
-            &format!(".#{ttype}.{}.{attribute}", system),
+            &format!(".#{ttype}.{system}.{attribute}"),
             "--apply",
             "pkg: pkg.drvPath",
             "--raw",
@@ -297,18 +273,12 @@ impl App {
 
         let nix_version = nix_version(&self.nix)?;
         let git_revision = git_revision()?;
-        let mut summary = Summary::new(
-            self.cwd.to_path_buf(),
-            dry_run,
-            nix_version,
-            git_revision,
-            self.width,
-        );
+        let mut summary = Summary::new(self.cwd.clone(), nix_version, git_revision, self.width);
 
         if self.output_dir.is_dir() {
             log::warn!("Removing old artifact dir");
             if dry_run {
-                println!("[DRYRUN] would remove old artifact dir")
+                println!("[DRYRUN] would remove old artifact dir");
             } else {
                 fs::remove_dir_all(&self.output_dir)?;
             }
@@ -325,7 +295,7 @@ impl App {
             for output in self.config.build_outputs() {
                 debug!("Output type: {output}");
 
-                let Ok(attributes) = self.attributes(output, system) else {
+                let Ok(attributes) = self.attributes(output, *system) else {
                     warn!("No such entry: .#{output}");
                     summary.skip_output(output);
                     continue;
@@ -334,26 +304,26 @@ impl App {
                 for attribute in &attributes {
                     debug!("Attr: {attribute}");
 
-                    let path = self.derivation_path(output, &system, &attribute)?;
+                    let path = self.derivation_path(output, *system, attribute)?;
                     debug!("Path: {path}");
 
-                    let derivation = format!(".#{output}.{}.{attribute}", system);
+                    let derivation = format!(".#{output}.{system}.{attribute}");
                     info!("Building {derivation}");
                     let status = self.build(&path, dry_run)?;
 
                     info!("Done building {derivation}");
                     match status {
                         Status::Skipped => {
-                            summary.register_skip(output.to_string(), derivation);
+                            summary.register_skip(output, derivation);
                         }
                         Status::Fail => {
                             all_succeeded = false;
                             let log_command = format!("`nix log {path}`");
-                            summary.register_fail(output.to_string(), derivation, log_command);
+                            summary.register_fail(output, derivation, log_command);
                         }
                         Status::Success => {
                             let artifact = if !dry_run
-                                && self.config.save_artifact(output, system, attribute)
+                                && self.config.save_artifact(output, *system, attribute)
                             {
                                 debug!("Saving artifacts from {}", &derivation);
                                 let artifact = &self.nix_result_dir;
@@ -373,11 +343,7 @@ impl App {
                                 None
                             };
 
-                            summary.register_success(
-                                output.to_string(),
-                                derivation.clone(),
-                                artifact,
-                            );
+                            summary.register_success(output, derivation.clone(), artifact);
                         }
                     }
                 }

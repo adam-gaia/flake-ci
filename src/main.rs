@@ -1,6 +1,5 @@
 use anyhow::{bail, Result};
 use clap::Parser;
-use log::debug;
 use std::{env, fs, path::PathBuf};
 
 mod config;
@@ -23,8 +22,7 @@ fn system() -> Result<System> {
         ("aarch64", "linux") => System::arm_linux(),
         ("x86_64", "macos") => System::x86_darwin(),
         ("aarch64", "macos") => System::arm_darwin(),
-        ("x86", "windows") => System::x86_windows(),
-        ("x86_64", "windows") => System::x86_windows(),
+        ("x86" | "x86_64", "windows") => System::x86_windows(),
         ("aarch64", "windows") => System::arm_windows(),
         _ => bail!("Unknown system: arch: '{arch}, os: '{os}'"),
     };
@@ -66,7 +64,7 @@ fn main() -> Result<()> {
         None => MAX_WIDTH,
     };
 
-    let app = App::with_config(cwd, working_dir, system, width, config)?;
+    let app = App::with_config(cwd, &working_dir, system, width, config)?;
     if !app.run(args.dry_run)? {
         std::process::exit(1);
     }

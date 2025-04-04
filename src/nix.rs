@@ -1,17 +1,16 @@
 use anyhow::bail;
 use anyhow::Result;
 use log::debug;
-use log::info;
 use std::collections::HashMap;
 use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
-use std::process::{Command, ExitStatus};
+use std::process::Command;
 
 use crate::app::Status;
 
 pub fn run(exec: &Path, args: &[&str]) -> Result<String> {
     debug!("Running command: {} {:?}", exec.display(), args);
-    let output = Command::new(&exec).args(args).output()?;
+    let output = Command::new(exec).args(args).output()?;
     let status = output.status;
 
     if !status.success() {
@@ -44,19 +43,17 @@ pub fn run_stream(
     env: &HashMap<String, String>,
     dry_run: bool,
 ) -> Result<Status> {
-    debug!("Running command: {} {:?}", exec.display(), args);
-    let mut cmd = &mut Command::new(&exec);
+    debug!("Running command: {} {args:?}", exec.display());
+    let mut cmd = &mut Command::new(exec);
     cmd = cmd.args(args);
     cmd = cmd.envs(env);
     let status = if dry_run {
-        println!("[DRYRUN] Would run '{:?}'", cmd);
+        println!("[DRYRUN] Would run '{cmd:?}'");
         Status::Skipped
+    } else if cmd.status()?.success() {
+        Status::Success
     } else {
-        if cmd.status()?.success() {
-            Status::Success
-        } else {
-            Status::Fail
-        }
+        Status::Fail
     };
     Ok(status)
 }

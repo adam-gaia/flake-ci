@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::Result;
 use s_string::s;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
@@ -6,9 +6,9 @@ use serde_with::DisplayFromStr;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fmt::Display;
+use std::fs;
 use std::path::Path;
 use std::str::FromStr;
-use std::{env, fs};
 use winnow::prelude::*;
 use winnow::stream::AsChar;
 
@@ -43,7 +43,7 @@ pub struct ParseError {
 }
 
 impl ParseError {
-    fn from_parse(error: winnow::error::ParseError<&str, winnow::error::ContextError>) -> Self {
+    fn from_parse(error: &winnow::error::ParseError<&str, winnow::error::ContextError>) -> Self {
         let message = error.inner().to_string();
         let input = (*error.input()).to_owned();
         let span = error.char_span();
@@ -65,8 +65,8 @@ impl std::fmt::Display for ParseError {
                     .annotation(annotate_snippets::Level::Error.span(self.span.clone())),
             );
         let renderer = annotate_snippets::Renderer::plain();
-        let rendered = renderer.render(message);
-        rendered.fmt(f)
+        let rendered_message = renderer.render(message);
+        rendered_message.fmt(f)
     }
 }
 
@@ -96,9 +96,9 @@ pub enum OS {
 impl Display for OS {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Linux => write!(f, "{}", LINUX),
-            Self::Darwin => write!(f, "{}", DARWIN),
-            Self::Windows => write!(f, "{}", WINDOWS),
+            Self::Linux => write!(f, "{LINUX}"),
+            Self::Darwin => write!(f, "{DARWIN}"),
+            Self::Windows => write!(f, "{WINDOWS}"),
         }
     }
 }
@@ -110,7 +110,7 @@ fn os(s: &mut &str) -> winnow::Result<OS> {
 impl FromStr for OS {
     type Err = ParseError;
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        os.parse(s).map_err(|e| ParseError::from_parse(e))
+        os.parse(s).map_err(|e| ParseError::from_parse(&e))
     }
 }
 
@@ -123,8 +123,8 @@ pub enum Arch {
 impl Display for Arch {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::X86 => write!(f, "{}", X86),
-            Self::Arm => write!(f, "{}", ARM),
+            Self::X86 => write!(f, "{X86}"),
+            Self::Arm => write!(f, "{ARM}"),
         }
     }
 }
@@ -136,7 +136,7 @@ fn arch(s: &mut &str) -> winnow::Result<Arch> {
 impl FromStr for Arch {
     type Err = ParseError;
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        arch.parse(s).map_err(|e| ParseError::from_parse(e))
+        arch.parse(s).map_err(|e| ParseError::from_parse(&e))
     }
 }
 
@@ -208,7 +208,7 @@ fn system(s: &mut &str) -> winnow::Result<System> {
 impl FromStr for System {
     type Err = ParseError;
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        system.parse(s).map_err(|e| ParseError::from_parse(e))
+        system.parse(s).map_err(|e| ParseError::from_parse(&e))
     }
 }
 
@@ -243,8 +243,8 @@ pub struct OutputPath {
 }
 
 impl OutputPath {
-    fn matches(&self, top_level: &String, system: &System, name: &String) -> bool {
-        self.top_level.matches(top_level) && self.system.matches(system) && self.name.matches(name)
+    fn matches(&self, top_level: &String, system: System, name: &String) -> bool {
+        self.top_level.matches(top_level) && self.system.matches(&system) && self.name.matches(name)
     }
 }
 
@@ -271,7 +271,7 @@ fn not_system(s: &mut &str) -> winnow::Result<System> {
 
 fn name_pattern(s: &mut &str) -> winnow::Result<NamePattern> {
     winnow::combinator::alt((
-        star.map(|_| NamePattern::Any),
+        star.map(|()| NamePattern::Any),
         not.map(NamePattern::Not),
         name.map(NamePattern::Specified),
     ))
@@ -280,7 +280,7 @@ fn name_pattern(s: &mut &str) -> winnow::Result<NamePattern> {
 
 fn system_pattern(s: &mut &str) -> winnow::Result<SystemPattern> {
     winnow::combinator::alt((
-        star.map(|_| SystemPattern::Any),
+        star.map(|()| SystemPattern::Any),
         not_system.map(SystemPattern::Not),
         system.map(SystemPattern::Specified),
     ))
@@ -301,7 +301,7 @@ fn output_path(s: &mut &str) -> winnow::Result<OutputPath> {
 impl FromStr for OutputPath {
     type Err = ParseError;
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        output_path.parse(s).map_err(|e| ParseError::from_parse(e))
+        output_path.parse(s).map_err(|e| ParseError::from_parse(&e))
     }
 }
 
@@ -384,24 +384,23 @@ impl Config {
     pub fn systems(&self) -> Vec<System> {
         let mut systems = HashSet::new();
         for system in &self.build.systems {
-            systems.insert(system.clone());
+            systems.insert(*system);
         }
 
         for arch in &self.build.architectures {
             for os in &self.build.os {
                 let system = System {
-                    arch: arch.clone(),
-                    os: os.clone(),
+                    arch: *arch,
+                    os: *os,
                 };
                 systems.insert(system);
             }
         }
 
-        let systems = systems.into_iter().map(|x| x.to_owned()).collect();
-        systems
+        systems.into_iter().collect()
     }
 
-    pub fn save_artifact(&self, top_level: &String, system: &System, name: &String) -> bool {
+    pub fn save_artifact(&self, top_level: &String, system: System, name: &String) -> bool {
         for a in &self.build.artifacts {
             if !a.matches(top_level, system, name) {
                 return false;
