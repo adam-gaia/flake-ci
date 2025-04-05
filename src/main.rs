@@ -9,6 +9,7 @@ use config::{Config, System};
 mod app;
 use app::App;
 
+mod graph;
 mod nix;
 
 const MAX_WIDTH: usize = 100;
@@ -57,6 +58,7 @@ fn main() -> Result<()> {
         None => cwd.clone(),
     };
 
+    // TODO: search back for repo root instead of using cwd
     let config_file = working_dir.join(CONFIG_FILE_NAME);
     let config = if config_file.is_file() {
         Config::from_file(&config_file)?
