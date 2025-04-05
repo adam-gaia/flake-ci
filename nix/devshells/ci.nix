@@ -5,5 +5,6 @@
 pkgs.mkShellNoCC {
   packages = [
     flake.packages.${pkgs.system}.default
+    pkgs.cachix
   ];
 }

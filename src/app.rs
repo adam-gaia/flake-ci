@@ -4,6 +4,7 @@ use anyhow::{bail, Result};
 use log::{debug, info, warn};
 use owo_colors::{OwoColorize, Style};
 use std::collections::HashMap;
+use std::env;
 use std::fs;
 use std::os::unix::fs::symlink;
 use std::path::Path;
@@ -13,6 +14,8 @@ use which::which;
 const INDENT: &str = "  ";
 const STATUS_PREFIX: &str = "> ";
 const SUBSTATUS_PREFIX: &str = "- ";
+const CACHIX_AUTH_KEY: &str = "CACHIX_AUTH_TOKEN";
+const CACHIX_SIGNING_KEY: &str = "CACHIX_SIGNING_KEY";
 
 #[derive(Debug)]
 pub enum Status {
@@ -28,10 +31,18 @@ fn register<T>(map: &mut HashMap<String, Vec<T>>, output_name: &str, job: T) {
     map.get_mut(output_name).unwrap().push(job);
 }
 
+fn get_version(bin: &Path) -> Result<String> {
+    let output = run(bin, &["--version"])?;
+    let version = output.lines().next().unwrap();
+    Ok(version.to_string())
+}
+
 fn nix_version(nix: &Path) -> Result<String> {
-    let output = run(nix, &["--version"])?;
-    let nix_version = output.lines().next().unwrap();
-    Ok(nix_version.to_string())
+    get_version(nix)
+}
+
+fn cachix_version(cachix: &Path) -> Result<String> {
+    get_version(cachix)
 }
 
 fn git_revision() -> Result<String> {
@@ -62,12 +73,19 @@ struct Summary {
     fails: HashMap<String, Vec<(String, String)>>,
     skips: HashMap<String, Vec<String>>,
     nix_version: String,
+    cachix_version: Option<String>,
     git_revision: String,
     width: usize,
 }
 
 impl Summary {
-    pub fn new(cwd: PathBuf, nix_version: String, git_revision: String, width: usize) -> Self {
+    pub fn new(
+        cwd: PathBuf,
+        nix_version: String,
+        cachix_version: Option<String>,
+        git_revision: String,
+        width: usize,
+    ) -> Self {
         Self {
             cwd,
             skipped_outputs: Vec::new(),
@@ -76,6 +94,7 @@ impl Summary {
             skips: HashMap::new(),
             nix_version,
             git_revision,
+            cachix_version,
             width,
         }
     }
@@ -195,7 +214,25 @@ impl Summary {
 
         Summary::print_version("Git revision", &self.git_revision);
         Summary::print_version("Nix version:", &self.nix_version);
+        if let Some(cachix_version) = &self.cachix_version {
+            Summary::print_version("Cachix version", cachix_version);
+        };
     }
+}
+
+fn env_set(key: &str) -> bool {
+    env::var(key).is_ok()
+}
+
+fn setup_cachix(cachix: &Path, cache: &str, dry_run: bool) -> Result<()> {
+    if !(env_set(CACHIX_AUTH_KEY) || env_set(CACHIX_SIGNING_KEY)) {
+        bail!("Neither env var {CACHIX_AUTH_KEY} or {CACHIX_SIGNING_KEY} set. At least one is required for cachix support");
+    }
+
+    info!("Using cachix");
+
+    run_stream(cachix, &["use", cache], None, dry_run)?;
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -205,6 +242,7 @@ pub struct App {
     nix_result_dir: PathBuf,
     config: Config,
     nix: PathBuf,
+    cachix: Option<PathBuf>,
     system: System,
     width: usize,
 }
@@ -219,13 +257,27 @@ impl App {
     ) -> Result<Self> {
         let output_dir = working_dir.join(config.artifact_dir());
         let nix_result_dir = working_dir.join("result");
-        let nix = which::which("nix")?;
+        let Ok(nix) = which::which("nix") else {
+            bail!("Unable to find nix on the $PATH");
+        };
+
+        let cachix = match config.cache() {
+            Some(_) => {
+                let Ok(cachix) = which::which("cachix") else {
+                    bail!("Unable to find cachix on the $PATH (config has cachix set)");
+                };
+                Some(cachix)
+            }
+            None => None,
+        };
+
         Ok(Self {
             cwd,
             output_dir,
             nix_result_dir,
             config,
             nix,
+            cachix,
             system,
             width,
         })
@@ -257,14 +309,25 @@ impl App {
     }
 
     fn build(&self, path: &str, dry_run: bool) -> Result<Status> {
-        let args = &[
+        let nix_args = &[
             "build",
             &format!("{path}^*"),
             "--log-lines",
             "0",
             "--print-build-logs",
         ];
-        let status = run_stream(&self.nix, args, self.config.env(), dry_run)?;
+
+        let env = Some(self.config.env());
+
+        let status = if self.config.publish() {
+            // Run nix build under cachix. Cachix will push all built paths
+            let nix = self.nix.display().to_string();
+            let mut args = vec!["watch-exec", &self.config.cache().unwrap(), "--", &nix];
+            args.extend_from_slice(nix_args);
+            run_stream(&self.cachix.clone().unwrap(), &args, env, dry_run)?
+        } else {
+            run_stream(&self.nix, nix_args, env, dry_run)?
+        };
         Ok(status)
     }
 
@@ -273,7 +336,24 @@ impl App {
 
         let nix_version = nix_version(&self.nix)?;
         let git_revision = git_revision()?;
-        let mut summary = Summary::new(self.cwd.clone(), nix_version, git_revision, self.width);
+
+        let cachix_version = match &self.cachix {
+            Some(cachix) => {
+                info!("Setting up nix to work with cachix");
+                setup_cachix(cachix, self.config.cache().unwrap(), dry_run)?;
+
+                Some(cachix_version(cachix)?)
+            }
+            None => None,
+        };
+
+        let mut summary = Summary::new(
+            self.cwd.clone(),
+            nix_version,
+            cachix_version,
+            git_revision,
+            self.width,
+        );
 
         if self.output_dir.is_dir() {
             log::warn!("Removing old artifact dir");
@@ -347,6 +427,12 @@ impl App {
                         }
                     }
                 }
+            }
+        }
+
+        if all_succeeded {
+            for pin in self.config.pins() {
+                // TODO
             }
         }
 

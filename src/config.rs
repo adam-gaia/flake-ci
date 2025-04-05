@@ -35,6 +35,10 @@ fn default_outputs() -> Vec<String> {
     ]
 }
 
+fn default_publish() -> bool {
+    false
+}
+
 #[derive(Debug)]
 pub struct ParseError {
     message: String,
@@ -212,7 +216,7 @@ impl FromStr for System {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 enum Pattern<T> {
     Any,
     Not(T),
@@ -235,7 +239,7 @@ where
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct OutputPath {
     top_level: NamePattern,
     system: SystemPattern,
@@ -352,10 +356,26 @@ impl Default for Build {
     }
 }
 
+#[serde_as]
+#[derive(Debug, Deserialize)]
+pub struct Cache {
+    #[serde(rename = "cache-name")]
+    cache_name: String,
+
+    #[serde(default = "default_publish")]
+    publish: bool,
+
+    #[serde_as(as = "Vec<DisplayFromStr>")]
+    #[serde(default)]
+    pin: Vec<OutputPath>,
+}
+
 #[derive(Debug, Deserialize, Default)]
 pub struct Config {
     #[serde(default)]
     general: General,
+    #[serde(rename = "cachix")]
+    cache: Option<Cache>,
     #[serde(default)]
     build: Build,
     #[serde(default)]
@@ -367,6 +387,27 @@ impl Config {
         let contents = fs::read_to_string(config_file)?;
         let config: Config = toml::from_str(&contents)?;
         Ok(config)
+    }
+
+    pub fn publish(&self) -> bool {
+        let Some(cache_settings) = &self.cache else {
+            return false;
+        };
+        cache_settings.publish
+    }
+
+    pub fn cache(&self) -> Option<&String> {
+        let Some(cache_settings) = &self.cache else {
+            return None;
+        };
+        Some(&cache_settings.cache_name)
+    }
+
+    pub fn pins(&self) -> Vec<OutputPath> {
+        let Some(cache_settings) = &self.cache else {
+            return Vec::new();
+        };
+        cache_settings.pin.clone()
     }
 
     pub fn artifact_dir(&self) -> &String {

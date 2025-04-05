@@ -1,5 +1,6 @@
 use anyhow::{bail, Result};
 use clap::Parser;
+use log::debug;
 use std::{env, fs, path::PathBuf};
 
 mod config;
@@ -31,10 +32,15 @@ fn system() -> Result<System> {
 
 #[derive(Debug, Parser)]
 struct Cli {
+    /// Print what would be done without doing anything
     #[clap(long)]
     dry_run: bool,
+    /// Project directory to operate on
     #[clap(long)]
     dir: Option<PathBuf>,
+    /// Publish build artifacts to cachix
+    #[clap(long)]
+    publish: bool,
 }
 
 fn main() -> Result<()> {
@@ -63,6 +69,8 @@ fn main() -> Result<()> {
         Some((w, _)) => std::cmp::min(w, MAX_WIDTH),
         None => MAX_WIDTH,
     };
+
+    debug!("{config:?}");
 
     let app = App::with_config(cwd, &working_dir, system, width, config)?;
     if !app.run(args.dry_run)? {

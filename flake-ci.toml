@@ -1,6 +1,11 @@
 [general]
 artifact-dir = "dist"
 
+[cachix]
+cache-name = "agaia"
+publish = true
+
+
 [env]
 RUST_BACKTRACE = "1"
 CARGO_TERM_COLOR = "1"

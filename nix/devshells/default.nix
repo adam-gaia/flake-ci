@@ -47,6 +47,7 @@ in
         vale
         perSystem.system-str.default
         flake.packages.${pkgs.system}.default
+        cachix
       ]
       # Include the extra packages we use to build our crate
       ++ commonArgs.buildInputs

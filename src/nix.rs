@@ -40,13 +40,15 @@ pub fn run(exec: &Path, args: &[&str]) -> Result<String> {
 pub fn run_stream(
     exec: &Path,
     args: &[&str],
-    env: &HashMap<String, String>,
+    env: Option<&HashMap<String, String>>,
     dry_run: bool,
 ) -> Result<Status> {
     debug!("Running command: {} {args:?}", exec.display());
     let mut cmd = &mut Command::new(exec);
     cmd = cmd.args(args);
-    cmd = cmd.envs(env);
+    if let Some(env) = env {
+        cmd = cmd.envs(env);
+    };
     let status = if dry_run {
         println!("[DRYRUN] Would run '{cmd:?}'");
         Status::Skipped
