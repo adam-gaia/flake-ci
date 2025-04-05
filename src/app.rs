@@ -315,6 +315,7 @@ impl App {
             "--log-lines",
             "0",
             "--print-build-logs",
+            "--print-out-paths",
         ];
 
         let env = Some(self.config.env());
