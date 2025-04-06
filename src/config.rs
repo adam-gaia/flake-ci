@@ -47,7 +47,9 @@ pub struct ParseError {
 }
 
 impl ParseError {
-    fn from_parse(error: &winnow::error::ParseError<&str, winnow::error::ContextError>) -> Self {
+    pub fn from_parse(
+        error: &winnow::error::ParseError<&str, winnow::error::ContextError>,
+    ) -> Self {
         let message = error.inner().to_string();
         let input = (*error.input()).to_owned();
         let span = error.char_span();
@@ -200,7 +202,7 @@ impl Display for System {
     }
 }
 
-fn system(s: &mut &str) -> winnow::Result<System> {
+pub fn system(s: &mut &str) -> winnow::Result<System> {
     winnow::combinator::seq! {System {
         arch: arch,
         _: "-",
@@ -252,7 +254,7 @@ impl OutputPath {
     }
 }
 
-fn name(s: &mut &str) -> winnow::Result<String> {
+pub fn name(s: &mut &str) -> winnow::Result<String> {
     winnow::token::take_while(1.., |c: char| c.is_alphanum() || c == '_' || c == '-') // TODO: are dashes and underscores valid?
         .map(|s: &str| String::from(s))
         .parse_next(s)

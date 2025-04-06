@@ -21,4 +21,5 @@ fmt:
     treefmt
 
 ci:
+    # TODO: probably need to not use cachix when running locally. Maybe disable cachix if secret api key env var not set
     flake-ci

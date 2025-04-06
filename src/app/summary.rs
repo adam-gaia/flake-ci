@@ -29,6 +29,7 @@ pub struct Summary {
     successes: HashMap<String, Vec<(String, Option<PathBuf>)>>,
     fails: HashMap<String, Vec<(String, String)>>,
     skips: HashMap<String, Vec<String>>,
+    blocks: HashMap<String, Vec<(String, String)>>,
     nix_version: String,
     cachix_version: Option<String>,
     git_revision: String,
@@ -49,6 +50,7 @@ impl Summary {
             successes: HashMap::new(),
             fails: HashMap::new(),
             skips: HashMap::new(),
+            blocks: HashMap::new(),
             nix_version,
             git_revision,
             cachix_version,
@@ -77,6 +79,10 @@ impl Summary {
         register(&mut self.skips, output_name, job_name);
     }
 
+    pub fn register_blocked(&mut self, output_name: &str, job_name: String, pre_rec: String) {
+        register(&mut self.blocks, output_name, (job_name, pre_rec));
+    }
+
     fn print_line(left: &str, right: &str, style: Option<&Style>, extra_note: Option<&str>) {
         let extra_note = match extra_note {
             Some(note) => &format!(" {note}"),
@@ -84,12 +90,16 @@ impl Summary {
         };
 
         let used_space = left.len() + right.len() + extra_note.len();
-        assert!(used_space < crate::MAX_WIDTH, "Line too big");
+        //assert!(, "Line too big");
 
         let dots = if right.is_empty() {
             String::new()
         } else {
-            let n = crate::MAX_WIDTH - used_space;
+            let n = if used_space < crate::MAX_WIDTH {
+                crate::MAX_WIDTH - used_space
+            } else {
+                10
+            };
             ".".repeat(n)
         };
 
@@ -160,6 +170,18 @@ impl Summary {
             Summary::print_status_line(output, "", None, None);
             for job in jobs {
                 Summary::print_substatus_line(job, "skipped", &yellow, Some("(dry run)"));
+            }
+        }
+
+        for (output, jobs) in &self.blocks {
+            Summary::print_status_line(output, "", None, None);
+            for (job, pre_rec) in jobs {
+                Summary::print_substatus_line(
+                    job,
+                    "skipped",
+                    &yellow,
+                    Some(&format!("(pre-rec '{pre_rec}' failed)")),
+                );
             }
         }
 
