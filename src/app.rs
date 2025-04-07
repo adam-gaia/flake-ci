@@ -60,11 +60,22 @@ impl Display for Derivation {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Status {
     Skipped,
     Success,
     Fail,
+}
+
+impl Display for Status {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            Self::Skipped => "skipped",
+            Self::Success => "success",
+            Self::Fail => "failed",
+        };
+        write!(f, "{s}")
+    }
 }
 
 fn get_version(bin: &Path) -> Result<String> {
@@ -160,6 +171,8 @@ pub struct App {
     cachix: Option<PathBuf>,
     system: System,
     width: usize,
+    no_cachix: bool,
+    print_build_chains: bool,
 }
 
 impl App {
@@ -169,6 +182,9 @@ impl App {
         system: System,
         width: usize,
         config: Config,
+        no_cachix: bool,
+
+        print_build_chains: bool,
     ) -> Result<Self> {
         let output_dir = working_dir.join(config.artifact_dir());
         let nix_result_dir = working_dir.join("result");
@@ -176,14 +192,18 @@ impl App {
             bail!("Unable to find nix on the $PATH");
         };
 
-        let cachix = match config.cache() {
-            Some(_) => {
-                let Ok(cachix) = which::which("cachix") else {
-                    bail!("Unable to find cachix on the $PATH (config has cachix set)");
-                };
-                Some(cachix)
+        let cachix = if no_cachix {
+            None
+        } else {
+            match config.cache() {
+                Some(_) => {
+                    let Ok(cachix) = which::which("cachix") else {
+                        bail!("Unable to find cachix on the $PATH (config has cachix set)");
+                    };
+                    Some(cachix)
+                }
+                None => None,
             }
-            None => None,
         };
 
         Ok(Self {
@@ -195,6 +215,9 @@ impl App {
             cachix,
             system,
             width,
+            no_cachix,
+
+            print_build_chains,
         })
     }
 
@@ -212,6 +235,7 @@ impl App {
     }
 
     fn derivation_path(&self, derivation: &Derivation) -> Result<String> {
+        // TODO: cache this (but check if flake.nix hasn't changed) because it can take a second to run
         let args = &[
             "eval",
             &derivation.to_string(),
@@ -235,7 +259,7 @@ impl App {
 
         let env = Some(self.config.env());
 
-        let status = if self.config.publish() {
+        let status = if !self.no_cachix && self.config.publish() {
             // Run nix build under cachix. Cachix will push all built paths
             let nix = self.nix.display().to_string();
             let mut args = vec!["watch-exec", &self.config.cache().unwrap(), "--", &nix];
@@ -306,12 +330,25 @@ impl App {
                     }
                 }
             };
+            // Make the formatter (if exists) a pre-rec for all jobs
+            //if let Some(formatter) = sets.remove(&String::from("")) {}
 
             let walker = graph.walker();
             let chains = walker.chains();
 
-            for chain in &chains {
-                debug!("chain: {chain:?}");
+            if self.print_build_chains {
+                for chain in &chains {
+                    let num = chain.len();
+                    for (i, (drv, _)) in chain.iter().enumerate() {
+                        print!("{drv}");
+
+                        if i < (num - 1) {
+                            print!(" -> ");
+                        }
+                    }
+                    println!();
+                }
+                std::process::exit(0);
             }
 
             let mut have_ran = HashSet::new();
@@ -392,7 +429,7 @@ impl App {
         Ok(all_succeeded)
     }
 
-    pub fn run(&self, dry_run: bool) -> Result<bool> {
+    pub fn run(&self, dry_run: bool, no_fmt: bool) -> Result<bool> {
         let nix_version = nix_version(&self.nix)?;
         let git_revision = git_revision()?;
 
@@ -416,12 +453,20 @@ impl App {
         }
         fs::create_dir_all(&self.output_dir)?;
 
+        let format_result = if !no_fmt {
+            run_stream(&self.nix, &["fmt"], None, dry_run)?
+        } else {
+            warn!("Skipping running formatter");
+            Status::Skipped
+        };
+
         let mut summary = Summary::new(
             self.cwd.clone(),
             nix_version,
             cachix_version,
             git_revision,
             self.width,
+            format_result,
         );
 
         let all_succeeded = self.build_all(dry_run, &mut summary)?;

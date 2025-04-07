@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 
+use super::Status;
+
 const INDENT: &str = "  ";
 const STATUS_PREFIX: &str = "> ";
 const SUBSTATUS_PREFIX: &str = "- ";
@@ -34,6 +36,7 @@ pub struct Summary {
     cachix_version: Option<String>,
     git_revision: String,
     width: usize,
+    format_result: Status,
 }
 
 impl Summary {
@@ -43,6 +46,7 @@ impl Summary {
         cachix_version: Option<String>,
         git_revision: String,
         width: usize,
+        format_result: Status,
     ) -> Self {
         Self {
             cwd,
@@ -55,6 +59,7 @@ impl Summary {
             git_revision,
             cachix_version,
             width,
+            format_result,
         }
     }
 
@@ -83,11 +88,20 @@ impl Summary {
         register(&mut self.blocks, output_name, (job_name, pre_rec));
     }
 
-    fn print_line(left: &str, right: &str, style: Option<&Style>, extra_note: Option<&str>) {
+    fn print_line(
+        left: &str,
+        status: Option<Status>,
+        style: Option<&Style>,
+        extra_note: Option<&str>,
+    ) {
         let extra_note = match extra_note {
             Some(note) => &format!(" {note}"),
             None => "",
         };
+
+        let right = status
+            .map(|x| x.to_string())
+            .unwrap_or_else(|| String::new());
 
         let used_space = left.len() + right.len() + extra_note.len();
         //assert!(, "Line too big");
@@ -116,16 +130,26 @@ impl Summary {
         };
     }
 
-    fn print_status_line(left: &str, right: &str, style: Option<&Style>, extra_note: Option<&str>) {
+    fn print_status_line(
+        left: &str,
+        status: Option<Status>,
+        style: Option<&Style>,
+        extra_note: Option<&str>,
+    ) {
         assert_eq!(STATUS_PREFIX.len(), INDENT.len());
         let left = format!("{STATUS_PREFIX}{left}");
-        Summary::print_line(&left, right, style, extra_note);
+        Summary::print_line(&left, status, style, extra_note);
     }
 
-    fn print_substatus_line(left: &str, right: &str, style: &Style, extra_note: Option<&str>) {
+    fn print_substatus_line(
+        left: &str,
+        status: Option<Status>,
+        style: &Style,
+        extra_note: Option<&str>,
+    ) {
         assert_eq!(SUBSTATUS_PREFIX.len(), INDENT.len());
         let left = format!("{INDENT}{SUBSTATUS_PREFIX}{left}");
-        Summary::print_line(&left, right, Some(style), extra_note);
+        Summary::print_line(&left, status, Some(style), extra_note);
     }
 
     fn print_substatus_attribute(name: &str, attribute: &str) {
@@ -148,16 +172,33 @@ impl Summary {
         println!("{bar}");
         println!("Summary");
 
+        let format_color = match self.format_result {
+            Status::Skipped => Some(&yellow),
+            Status::Fail => Some(&red),
+            Status::Success => Some(&green),
+        };
+        Summary::print_status_line(
+            "Formatted",
+            Some(self.format_result.clone()),
+            format_color,
+            None,
+        );
+
         // TODO: I think I'd rather mix failed/skipped/passed output and print by top_level instead
 
         for output in &self.skipped_outputs {
-            Summary::print_status_line(output, "skipped", Some(&yellow), Some("(not found)"));
+            Summary::print_status_line(
+                output,
+                Some(Status::Skipped),
+                Some(&yellow),
+                Some("(not found)"),
+            );
         }
 
         for (output, jobs) in &self.successes {
-            Summary::print_status_line(output, "", None, None);
+            Summary::print_status_line(output, None, None, None);
             for (job_name, artifact) in jobs {
-                Summary::print_substatus_line(job_name, "success", &green, None);
+                Summary::print_substatus_line(job_name, Some(Status::Success), &green, None);
 
                 if let Some(artifact) = artifact {
                     let artifact = rel_to_cwd(artifact, &self.cwd);
@@ -167,18 +208,23 @@ impl Summary {
         }
 
         for (output, jobs) in &self.skips {
-            Summary::print_status_line(output, "", None, None);
+            Summary::print_status_line(output, None, None, None);
             for job in jobs {
-                Summary::print_substatus_line(job, "skipped", &yellow, Some("(dry run)"));
+                Summary::print_substatus_line(
+                    job,
+                    Some(Status::Skipped),
+                    &yellow,
+                    Some("(dry run)"),
+                );
             }
         }
 
         for (output, jobs) in &self.blocks {
-            Summary::print_status_line(output, "", None, None);
+            Summary::print_status_line(output, None, None, None);
             for (job, pre_rec) in jobs {
                 Summary::print_substatus_line(
                     job,
-                    "skipped",
+                    Some(Status::Skipped),
                     &yellow,
                     Some(&format!("(pre-rec '{pre_rec}' failed)")),
                 );
@@ -188,7 +234,7 @@ impl Summary {
         for (output, jobs) in &self.fails {
             println!("> {output}");
             for (job, log_command) in jobs {
-                Summary::print_substatus_line(job, "failed", &red, None);
+                Summary::print_substatus_line(job, Some(Status::Fail), &red, None);
                 Summary::print_substatus_attribute("log command", log_command);
             }
         }

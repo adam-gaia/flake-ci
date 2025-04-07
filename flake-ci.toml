@@ -5,7 +5,6 @@ artifact-dir = "dist"
 cache-name = "agaia"
 publish = true
 
-
 [env]
 RUST_BACKTRACE = "1"
 CARGO_TERM_COLOR = "1"
@@ -24,3 +23,10 @@ outputs = [
 ]
 artifacts = ["packages.*.!formatter"]
 systems = ["x86_64-linux", "x86_64-darwin"]
+
+
+[[output]]
+output = "default"
+extra-prereqs = [
+  "checks._.[cargo-clippy, cargo-audit, cargo-deny, cargo-nextest]",
+]

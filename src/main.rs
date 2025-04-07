@@ -42,6 +42,16 @@ struct Cli {
     /// Publish build artifacts to cachix
     #[clap(long)]
     publish: bool,
+    /// TODO
+    #[clap(long)]
+    no_cachix: bool,
+    /// TODO
+    #[clap(long)]
+    no_fmt: bool,
+    /// TODO
+    #[clap(long)]
+    // TODO: rename to something better
+    print_build_chains: bool,
 }
 
 fn main() -> Result<()> {
@@ -74,8 +84,22 @@ fn main() -> Result<()> {
 
     debug!("{config:?}");
 
-    let app = App::with_config(cwd, &working_dir, system, width, config)?;
-    if !app.run(args.dry_run)? {
+    let mut no_cachix = args.no_cachix;
+    let print_build_chains = args.print_build_chains;
+    if print_build_chains {
+        no_cachix = true;
+    }
+    // TODO: layered config to merge args into config, then only need to pass config
+    let app = App::with_config(
+        cwd,
+        &working_dir,
+        system,
+        width,
+        config,
+        no_cachix,
+        print_build_chains,
+    )?;
+    if !app.run(args.dry_run, args.no_fmt)? {
         std::process::exit(1);
     }
     Ok(())

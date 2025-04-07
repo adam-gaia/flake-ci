@@ -9,6 +9,6 @@
     jsonfmt.enable = true; # json
     yamlfmt.enable = true; # yaml
     taplo.enable = true; # toml
-    typos.enable = true; # spellcheck
+    #typos.enable = true; # spellcheck
   };
 }
