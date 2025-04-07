@@ -60,7 +60,7 @@ impl Display for Derivation {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Status {
     Skipped,
     Success,
@@ -330,8 +330,6 @@ impl App {
                     }
                 }
             };
-            // Make the formatter (if exists) a pre-rec for all jobs
-            //if let Some(formatter) = sets.remove(&String::from("")) {}
 
             let walker = graph.walker();
             let chains = walker.chains();
@@ -466,12 +464,12 @@ impl App {
             cachix_version,
             git_revision,
             self.width,
-            format_result,
+            format_result.clone(),
         );
 
-        let all_succeeded = self.build_all(dry_run, &mut summary)?;
+        let all_builds_succeeded = self.build_all(dry_run, &mut summary)?;
 
-        if all_succeeded {
+        if all_builds_succeeded {
             for pin in self.config.pins() {
                 // TODO
             }
@@ -480,6 +478,7 @@ impl App {
         // TODO: json output option
         summary.print();
 
+        let all_succeeded = all_builds_succeeded && format_result != Status::Fail;
         Ok(all_succeeded)
     }
 }

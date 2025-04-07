@@ -85,9 +85,11 @@ fn main() -> Result<()> {
     debug!("{config:?}");
 
     let mut no_cachix = args.no_cachix;
+    let mut no_fmt = args.no_fmt;
     let print_build_chains = args.print_build_chains;
     if print_build_chains {
         no_cachix = true;
+        no_fmt = true;
     }
     // TODO: layered config to merge args into config, then only need to pass config
     let app = App::with_config(
@@ -99,7 +101,7 @@ fn main() -> Result<()> {
         no_cachix,
         print_build_chains,
     )?;
-    if !app.run(args.dry_run, args.no_fmt)? {
+    if !app.run(args.dry_run, no_fmt)? {
         std::process::exit(1);
     }
     Ok(())
