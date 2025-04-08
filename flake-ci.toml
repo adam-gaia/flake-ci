@@ -24,9 +24,11 @@ outputs = [
 artifacts = ["packages.*.!formatter"]
 systems = ["x86_64-linux", "x86_64-darwin"]
 
-
 [[output]]
-output = "default"
+output = "packages.*.default"
 extra-prereqs = [
-  "checks._.[cargo-clippy, cargo-audit, cargo-deny, cargo-nextest]",
+  "checks.*.cargo-clippy",
+  "checks.*.cargo-audit",
+  "checks.*.cargo-deny",
+  "checks.*.cargo-nextest",
 ]
