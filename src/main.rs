@@ -4,19 +4,21 @@ use log::debug;
 use std::{env, fs, path::PathBuf};
 
 mod config;
-use config::{Config, System};
+use crate::model::System;
+use config::Config;
 
 mod app;
 use app::App;
 
 mod graph;
+mod model;
 mod nix;
 
 const MAX_WIDTH: usize = 100;
 const CONFIG_FILE_NAME: &str = "flake-ci.toml";
 
 // TODO: make this into a lib crate. Also add a bin that calls the function and prints the system
-fn system() -> Result<System> {
+fn current_system() -> Result<System> {
     let arch = env::consts::ARCH;
     let os = env::consts::OS;
     let system = match (arch, os) {
@@ -76,7 +78,7 @@ fn main() -> Result<()> {
         Config::default()
     };
 
-    let system = system()?;
+    let system = current_system()?;
     let width = match term_size::dimensions() {
         Some((w, _)) => std::cmp::min(w, MAX_WIDTH),
         None => MAX_WIDTH,

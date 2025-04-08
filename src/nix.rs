@@ -6,7 +6,7 @@ use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process::Command;
 
-use crate::app::Status;
+use crate::model::Status;
 
 pub fn run(exec: &Path, args: &[&str]) -> Result<String> {
     debug!("Running command: {} {:?}", exec.display(), args);

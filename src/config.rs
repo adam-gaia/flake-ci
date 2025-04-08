@@ -1,3 +1,6 @@
+use crate::model::Derivation;
+use crate::model::{Arch, NamePattern, SymbolicOutput, System, SystemPattern, OS};
+use anyhow::bail;
 use anyhow::Result;
 use s_string::s;
 use serde::{Deserialize, Serialize};
@@ -11,12 +14,6 @@ use std::path::Path;
 use std::str::FromStr;
 use winnow::prelude::*;
 use winnow::stream::AsChar;
-
-const LINUX: &str = "linux";
-const DARWIN: &str = "darwin";
-const WINDOWS: &str = "windows";
-const ARM: &str = "aarch64";
-const X86: &str = "x86_64";
 
 fn default_artifact_dir() -> String {
     s!("dist")
@@ -39,45 +36,6 @@ fn default_publish() -> bool {
     false
 }
 
-#[derive(Debug)]
-pub struct ParseError {
-    message: String,
-    span: std::ops::Range<usize>,
-    input: String,
-}
-
-impl ParseError {
-    pub fn from_parse(
-        error: &winnow::error::ParseError<&str, winnow::error::ContextError>,
-    ) -> Self {
-        let message = error.inner().to_string();
-        let input = (*error.input()).to_owned();
-        let span = error.char_span();
-        Self {
-            message,
-            span,
-            input,
-        }
-    }
-}
-
-impl std::fmt::Display for ParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let message = annotate_snippets::Level::Error
-            .title(&self.message)
-            .snippet(
-                annotate_snippets::Snippet::source(&self.input)
-                    .fold(true)
-                    .annotation(annotate_snippets::Level::Error.span(self.span.clone())),
-            );
-        let renderer = annotate_snippets::Renderer::plain();
-        let rendered_message = renderer.render(message);
-        rendered_message.fmt(f)
-    }
-}
-
-impl std::error::Error for ParseError {}
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct General {
     #[serde(rename = "output-dir", default = "default_artifact_dir")]
@@ -92,225 +50,6 @@ impl Default for General {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Clone, Copy, Hash)]
-pub enum OS {
-    Linux,
-    Darwin,
-    Windows,
-}
-
-impl Display for OS {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Linux => write!(f, "{LINUX}"),
-            Self::Darwin => write!(f, "{DARWIN}"),
-            Self::Windows => write!(f, "{WINDOWS}"),
-        }
-    }
-}
-
-fn os(s: &mut &str) -> winnow::Result<OS> {
-    winnow::combinator::alt((LINUX.map(|_| OS::Linux), DARWIN.map(|_| OS::Darwin))).parse_next(s)
-}
-
-impl FromStr for OS {
-    type Err = ParseError;
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        os.parse(s).map_err(|e| ParseError::from_parse(&e))
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Clone, Copy, Hash)]
-pub enum Arch {
-    X86,
-    Arm,
-}
-
-impl Display for Arch {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::X86 => write!(f, "{X86}"),
-            Self::Arm => write!(f, "{ARM}"),
-        }
-    }
-}
-
-fn arch(s: &mut &str) -> winnow::Result<Arch> {
-    winnow::combinator::alt((X86.map(|_| Arch::X86), ARM.map(|_| Arch::Arm))).parse_next(s)
-}
-
-impl FromStr for Arch {
-    type Err = ParseError;
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        arch.parse(s).map_err(|e| ParseError::from_parse(&e))
-    }
-}
-
-#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash)]
-pub struct System {
-    os: OS,
-    arch: Arch,
-}
-
-impl System {
-    pub fn x86_linux() -> Self {
-        Self {
-            os: OS::Linux,
-            arch: Arch::X86,
-        }
-    }
-
-    pub fn x86_darwin() -> Self {
-        Self {
-            os: OS::Darwin,
-            arch: Arch::X86,
-        }
-    }
-
-    pub fn arm_linux() -> Self {
-        Self {
-            os: OS::Linux,
-            arch: Arch::Arm,
-        }
-    }
-
-    pub fn arm_darwin() -> Self {
-        Self {
-            os: OS::Darwin,
-            arch: Arch::Arm,
-        }
-    }
-
-    pub fn x86_windows() -> Self {
-        Self {
-            os: OS::Windows,
-            arch: Arch::X86,
-        }
-    }
-
-    pub fn arm_windows() -> Self {
-        Self {
-            os: OS::Windows,
-            arch: Arch::Arm,
-        }
-    }
-}
-
-impl Display for System {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}-{}", self.arch, self.os)
-    }
-}
-
-pub fn system(s: &mut &str) -> winnow::Result<System> {
-    winnow::combinator::seq! {System {
-        arch: arch,
-        _: "-",
-        os: os
-    }}
-    .parse_next(s)
-}
-
-impl FromStr for System {
-    type Err = ParseError;
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        system.parse(s).map_err(|e| ParseError::from_parse(&e))
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-enum Pattern<T> {
-    Any,
-    Not(T),
-    Specified(T),
-}
-
-type SystemPattern = Pattern<System>;
-type NamePattern = Pattern<String>;
-
-impl<T> Pattern<T>
-where
-    T: Eq + PartialEq,
-{
-    pub fn matches(&self, other: &T) -> bool {
-        match self {
-            Self::Any => true,
-            Self::Not(pattern) => other != pattern,
-            Self::Specified(pattern) => other == pattern,
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct OutputPath {
-    top_level: NamePattern,
-    system: SystemPattern,
-    name: NamePattern,
-}
-
-impl OutputPath {
-    fn matches(&self, top_level: &String, system: System, name: &String) -> bool {
-        self.top_level.matches(top_level) && self.system.matches(&system) && self.name.matches(name)
-    }
-}
-
-pub fn name(s: &mut &str) -> winnow::Result<String> {
-    winnow::token::take_while(1.., |c: char| c.is_alphanum() || c == '_' || c == '-') // TODO: are dashes and underscores valid?
-        .map(|s: &str| String::from(s))
-        .parse_next(s)
-}
-
-fn star(s: &mut &str) -> winnow::Result<()> {
-    let _ = "*".parse_next(s)?;
-    Ok(())
-}
-
-fn not(s: &mut &str) -> winnow::Result<String> {
-    let _ = "!".parse_next(s)?;
-    name.parse_next(s)
-}
-
-fn not_system(s: &mut &str) -> winnow::Result<System> {
-    let _ = "!".parse_next(s)?;
-    system.parse_next(s)
-}
-
-fn name_pattern(s: &mut &str) -> winnow::Result<NamePattern> {
-    winnow::combinator::alt((
-        star.map(|()| NamePattern::Any),
-        not.map(NamePattern::Not),
-        name.map(NamePattern::Specified),
-    ))
-    .parse_next(s)
-}
-
-fn system_pattern(s: &mut &str) -> winnow::Result<SystemPattern> {
-    winnow::combinator::alt((
-        star.map(|()| SystemPattern::Any),
-        not_system.map(SystemPattern::Not),
-        system.map(SystemPattern::Specified),
-    ))
-    .parse_next(s)
-}
-
-fn output_path(s: &mut &str) -> winnow::Result<OutputPath> {
-    winnow::combinator::seq! {OutputPath {
-        top_level: name_pattern,
-        _: ".",
-        system: system_pattern,
-        _: ".",
-        name: name_pattern
-    }}
-    .parse_next(s)
-}
-
-impl FromStr for OutputPath {
-    type Err = ParseError;
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        output_path.parse(s).map_err(|e| ParseError::from_parse(&e))
-    }
-}
-
 #[serde_as]
 #[derive(Debug, Deserialize)]
 pub struct Build {
@@ -319,7 +58,7 @@ pub struct Build {
 
     #[serde_as(as = "Vec<DisplayFromStr>")]
     #[serde(default)]
-    artifacts: Vec<OutputPath>,
+    artifacts: Vec<SymbolicOutput>,
 
     #[serde_as(as = "Vec<DisplayFromStr>")]
     #[serde(default)]
@@ -337,23 +76,14 @@ impl Default for Build {
     fn default() -> Self {
         Self {
             outputs: default_outputs(),
-            artifacts: vec![OutputPath {
-                top_level: Pattern::Specified(s!("packages")),
-                system: SystemPattern::Any,
-                name: Pattern::Not(s!("formatter")),
-            }],
+            artifacts: vec![SymbolicOutput::new(
+                NamePattern::Specified(s!("packages")),
+                SystemPattern::Any,
+                NamePattern::Not(s!("formatter")),
+            )],
             os: Vec::new(),
             architectures: Vec::new(),
-            systems: vec![
-                System {
-                    os: OS::Linux,
-                    arch: Arch::X86,
-                },
-                System {
-                    os: OS::Darwin,
-                    arch: Arch::X86,
-                },
-            ],
+            systems: vec![System::x86_linux(), System::x86_darwin()],
         }
     }
 }
@@ -369,7 +99,19 @@ pub struct Cache {
 
     #[serde_as(as = "Vec<DisplayFromStr>")]
     #[serde(default)]
-    pin: Vec<OutputPath>,
+    pin: Vec<SymbolicOutput>,
+}
+
+#[serde_as]
+#[derive(Debug, Deserialize)]
+pub struct OutputConfig {
+    #[serde_as(as = "DisplayFromStr")]
+    #[serde(rename = "output")]
+    name: SymbolicOutput,
+
+    #[serde_as(as = "Vec<DisplayFromStr>")]
+    #[serde(rename = "extra-prereqs")]
+    extra_prereqs: Vec<SymbolicOutput>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -382,6 +124,8 @@ pub struct Config {
     build: Build,
     #[serde(default)]
     env: HashMap<String, String>,
+    #[serde(default, rename = "output")]
+    outputs: Vec<OutputConfig>,
 }
 
 impl Config {
@@ -405,7 +149,7 @@ impl Config {
         Some(&cache_settings.cache_name)
     }
 
-    pub fn pins(&self) -> Vec<OutputPath> {
+    pub fn pins(&self) -> Vec<SymbolicOutput> {
         let Some(cache_settings) = &self.cache else {
             return Vec::new();
         };
@@ -432,10 +176,7 @@ impl Config {
 
         for arch in &self.build.architectures {
             for os in &self.build.os {
-                let system = System {
-                    arch: *arch,
-                    os: *os,
-                };
+                let system = System::new(*arch, *os);
                 systems.insert(system);
             }
         }
@@ -451,50 +192,14 @@ impl Config {
         }
         true
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use pretty_assertions::assert_eq;
-
-    #[test]
-    fn test_parse_any_pattern() {
-        let mut input = "*";
-        let expected = Pattern::Any;
-        let actual = name_pattern.parse_next(&mut input).unwrap();
-        assert_eq!(expected, actual);
-        assert_eq!("", input)
-    }
-
-    #[test]
-    fn test_parse_not_pattern() {
-        let mut input = "!formatter";
-        let expected = Pattern::Not(s!("formatter"));
-        let actual = name_pattern.parse_next(&mut input).unwrap();
-        assert_eq!(expected, actual);
-        assert_eq!("", input)
-    }
-
-    #[test]
-    fn test_parse_pattern() {
-        let mut input = "packages";
-        let expected = Pattern::Specified(s!("packages"));
-        let actual = name_pattern.parse_next(&mut input).unwrap();
-        assert_eq!(expected, actual);
-        assert_eq!("", input)
-    }
-
-    #[test]
-    fn test_parse_output_path() {
-        let mut input = "packages.*.!formatter";
-        let expected = OutputPath {
-            top_level: Pattern::Specified(s!("packages")),
-            system: SystemPattern::Any,
-            name: Pattern::Not(s!("formatter")),
-        };
-        let actual = output_path.parse_next(&mut input).unwrap();
-        assert_eq!(expected, actual);
-        assert_eq!("", input)
+    pub fn output_configs<'a>(&'a self) -> HashMap<&'a SymbolicOutput, &'a Vec<SymbolicOutput>> {
+        let mut map = HashMap::new();
+        for output in &self.outputs {
+            let name = &output.name;
+            let prereqs = &output.extra_prereqs;
+            map.insert(name, prereqs);
+        }
+        map
     }
 }

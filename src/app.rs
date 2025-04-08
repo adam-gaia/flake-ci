@@ -1,5 +1,7 @@
-use crate::config::{Config, ParseError, System};
+use crate::config::Config;
 use crate::graph::Graph;
+use crate::model::Status;
+use crate::model::{NamePattern, SymbolicOutput, System, SystemPattern};
 use crate::nix::{run, run_stream};
 use anyhow::{bail, Result};
 use log::{debug, info, warn};
@@ -15,68 +17,12 @@ use which::which;
 mod summary;
 use summary::Summary;
 use winnow::prelude::*;
+mod drvtree;
+use crate::model::Derivation;
+use drvtree::DrvTree;
 
 const CACHIX_AUTH_KEY: &str = "CACHIX_AUTH_TOKEN";
 const CACHIX_SIGNING_KEY: &str = "CACHIX_SIGNING_KEY";
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct Derivation {
-    output: String,
-    system: System,
-    name: String,
-}
-
-impl Derivation {
-    pub fn new(output: String, system: System, name: String) -> Self {
-        Self {
-            output,
-            system,
-            name,
-        }
-    }
-}
-
-fn derivation(s: &mut &str) -> winnow::Result<Derivation> {
-    winnow::combinator::seq! {Derivation {
-        output: crate::config::name,
-        _: ".",
-        system:  crate::config::system,
-        _: ".",
-        name:  crate::config::name,
-    }}
-    .parse_next(s)
-}
-
-impl FromStr for Derivation {
-    type Err = ParseError;
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        derivation.parse(s).map_err(|e| ParseError::from_parse(&e))
-    }
-}
-
-impl Display for Derivation {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, ".#{}.{}.{}", self.output, self.system, self.name)
-    }
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub enum Status {
-    Skipped,
-    Success,
-    Fail,
-}
-
-impl Display for Status {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = match self {
-            Self::Skipped => "skipped",
-            Self::Success => "success",
-            Self::Fail => "failed",
-        };
-        write!(f, "{s}")
-    }
-}
 
 fn get_version(bin: &Path) -> Result<String> {
     let output = run(bin, &["--version"])?;
@@ -139,7 +85,7 @@ fn find_check_type(input: &str) -> Result<&'static str> {
 }
 
 fn get_type_of_check(derivation: &Derivation) -> Result<&'static str> {
-    let name = &derivation.name;
+    let name = derivation.name();
     let Some((prefix, _)) = name.split_once('-') else {
         bail!("TODO: better error message");
     };
@@ -147,12 +93,26 @@ fn get_type_of_check(derivation: &Derivation) -> Result<&'static str> {
     find_check_type(&prefix)
 }
 
+fn parse_check_name(check: &Derivation) -> Result<(&'static str, &str)> {
+    assert!(
+        check.output() == "checks",
+        "Passed a non-check to parse_check_type()"
+    );
+
+    let Some((prefix, name)) = check.name().split_once('-') else {
+        bail!("TODO: better err message");
+    };
+
+    let ttype = find_check_type(prefix)?;
+    Ok((ttype, name))
+}
+
 fn check_checks_derivation(check: &Derivation, drv: &Derivation) -> bool {
-    if check.system == drv.system {
-        if let Some((prefix, suffix)) = check.name.split_once('-') {
+    if check.system() == drv.system() {
+        if let Some((prefix, suffix)) = check.name().split_once('-') {
             if let Ok(check_type) = find_check_type(prefix) {
-                if check_type.to_lowercase() == drv.output.to_lowercase() {
-                    return suffix.to_lowercase() == drv.name.to_lowercase();
+                if check_type.to_lowercase() == drv.output().to_lowercase() {
+                    return suffix.to_lowercase() == drv.name().to_lowercase();
                 }
             }
         }
@@ -183,7 +143,6 @@ impl App {
         width: usize,
         config: Config,
         no_cachix: bool,
-
         print_build_chains: bool,
     ) -> Result<Self> {
         let output_dir = working_dir.join(config.artifact_dir());
@@ -261,6 +220,7 @@ impl App {
 
         let status = if !self.no_cachix && self.config.publish() {
             // Run nix build under cachix. Cachix will push all built paths
+            // TODO: make 'cachix watch-exec nix ...' a function
             let nix = self.nix.display().to_string();
             let mut args = vec!["watch-exec", &self.config.cache().unwrap(), "--", &nix];
             args.extend_from_slice(nix_args);
@@ -274,18 +234,23 @@ impl App {
     pub fn build_all(&self, dry_run: bool, summary: &mut Summary) -> Result<bool> {
         let mut all_succeeded = true;
 
-        for system in &self.config.systems() {
+        /*
+        let all_outputs = self.config.build_outputs();
+        let all_systems = &self.config.systems();
+        let mut all_derivations = Vec::new(); // TODO: build up
+
+
+        let mut graph: Graph<(Derivation, String)> = Graph::new();
+        for system in all_systems {
             if system != &self.system {
                 // TODO: cross compiling?? Will probably also need to fix the graph stuff
                 warn!("Skipping system {}", system);
                 continue;
             }
 
-            // TODO: build graph so that packages aren't built unless checks pass
-
             let mut sets = HashMap::new();
-            let mut graph: Graph<(Derivation, String)> = Graph::new();
-            for output in self.config.build_outputs() {
+
+            for output in all_outputs {
                 sets.insert(output.to_owned(), HashSet::new());
 
                 let Ok(attributes) = self.attributes(output, *system) else {
@@ -299,6 +264,9 @@ impl App {
 
                     let derivation =
                         Derivation::new(output.to_owned(), *system, attribute.to_owned());
+
+                    all_derivations.push(derivation.clone());
+
                     let path = self.derivation_path(&derivation)?;
                     debug!("Path: {path}");
 
@@ -330,74 +298,88 @@ impl App {
                     }
                 }
             };
+        }
 
-            let walker = graph.walker();
-            let chains = walker.chains();
-
-            if self.print_build_chains {
-                for chain in &chains {
-                    let num = chain.len();
-                    for (i, (drv, _)) in chain.iter().enumerate() {
-                        print!("{drv}");
-
-                        if i < (num - 1) {
-                            print!(" -> ");
-                        }
+        // Add in extra dependencies from config file
+        for (child, prereqs) in self.config.output_configs() {
+            for child in &child.matrix(all_outputs, all_systems, &all_derivations)? {
+                for parent in prereqs {
+                    for parent in &parent.matrix(all_outputs, all_systems, &all_derivations)? {
+                        graph.mark_dep(
+                            &(parent.clone(), String::from("TODO: parent")),
+                            &(child.clone(), String::from("TODO: child")),
+                        )?;
                     }
-                    println!();
                 }
-                std::process::exit(0);
             }
+        }
 
-            let mut have_ran = HashSet::new();
+        let walker = graph.walker();
+        let chains = walker.chains();
 
-            for chain in chains {
-                let num_items = chain.len();
-                for i in 0..num_items {
-                    let (derivation, path) = &chain[i];
+        if self.print_build_chains {
+            for chain in &chains {
+                let num = chain.len();
+                for (i, (drv, _)) in chain.iter().enumerate() {
+                    print!("{drv}");
 
-                    if have_ran.contains(derivation) {
-                        continue;
+                    if i < (num - 1) {
+                        print!(" -> ");
                     }
+                }
+                println!();
+            }
+            std::process::exit(0);
+        }
 
-                    info!("Building {derivation}");
-                    let status = self.build(&path, dry_run)?;
-                    info!("Done building {derivation}");
+        let mut have_ran = HashSet::new();
 
-                    let output = &derivation.output;
-                    let attribute = &derivation.name;
+        for chain in chains {
+            let num_items = chain.len();
+            for i in 0..num_items {
+                let (derivation, path) = &chain[i];
 
-                    match status {
-                        Status::Skipped => {
-                            summary.register_skip(output, derivation.to_string());
-                        }
-                        Status::Fail => {
-                            all_succeeded = false;
-                            let log_command = format!("`nix log {path}`");
-                            summary.register_fail(output, derivation.to_string(), log_command);
+                if have_ran.contains(derivation) {
+                    continue;
+                }
 
-                            let pre_rec = derivation;
+                info!("Building {derivation}");
+                let status = self.build(&path, dry_run)?;
+                info!("Done building {derivation}");
 
-                            // Mark the rest of the chain as blocked because requirement failed
-                            for j in i..num_items {
-                                let (derivation, _) = &chain[j];
-                                if have_ran.contains(derivation) {
-                                    continue;
-                                }
-                                let output = &derivation.output;
-                                summary.register_blocked(
-                                    output,
-                                    derivation.to_string(),
-                                    pre_rec.to_string(),
-                                );
-                                have_ran.insert(derivation.clone());
+                let output = &derivation.output();
+                let attribute = &derivation.name();
+
+                match status {
+                    Status::Skipped => {
+                        summary.register_skip(output, derivation.to_string());
+                    }
+                    Status::Fail => {
+                        all_succeeded = false;
+                        let log_command = format!("`nix log {path}`");
+                        summary.register_fail(output, derivation.to_string(), log_command);
+
+                        let pre_rec = derivation;
+
+                        // Mark the rest of the chain as blocked because requirement failed
+                        for j in i..num_items {
+                            let (derivation, _) = &chain[j];
+                            if have_ran.contains(derivation) {
+                                continue;
                             }
-                            break;
+                            let output = &derivation.output();
+                            summary.register_blocked(
+                                output,
+                                derivation.to_string(),
+                                pre_rec.to_string(),
+                            );
+                            have_ran.insert(derivation.clone());
                         }
-                        Status::Success => {
-                            let artifact = if !dry_run
-                                && self.config.save_artifact(output, *system, attribute)
-                            {
+                        break;
+                    }
+                    Status::Success => {
+                        let artifact =
+                            if !dry_run && self.config.save_artifact(output, *system, attribute) {
                                 debug!("Saving artifacts from {}", &derivation);
                                 let artifact = &self.nix_result_dir;
                                 if !artifact.is_symlink() {
@@ -416,13 +398,13 @@ impl App {
                                 None
                             };
 
-                            summary.register_success(output, derivation.to_string(), artifact);
-                        }
+                        summary.register_success(output, derivation.to_string(), artifact);
                     }
-                    have_ran.insert(derivation.clone());
                 }
+                have_ran.insert(derivation.clone());
             }
         }
+        */
 
         Ok(all_succeeded)
     }

@@ -1,7 +1,8 @@
 use super::Derivation;
 use crate::app::{get_type_of_check, parse_check_name};
-use crate::config::{Config, NamePattern, SymbolicOutput, System, SystemPattern};
+use crate::config::Config;
 use crate::graph::Graph;
+use crate::model::{NamePattern, SymbolicOutput, System, SystemPattern};
 use crate::nix::run;
 use anyhow::{bail, Result};
 use log::warn;
