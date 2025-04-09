@@ -4,7 +4,7 @@
   perSystem,
   pkgs,
 }: let
-  crateBuilder = inputs.self.lib.mkCrateBuilder pkgs;
+  crateBuilder = flake.lib.mkCrateBuilder pkgs;
   craneLib = crateBuilder.craneLib;
   lib = crateBuilder.lib;
   commonArgs = crateBuilder.commonArgs;
@@ -46,7 +46,6 @@ in
         oranda
         vale
         perSystem.system-str.default
-        flake.packages.${pkgs.system}.default
         cachix
       ]
       # Include the extra packages we use to build our crate
