@@ -403,7 +403,6 @@ fn build(
         "0",
         "--print-build-logs",
         "--print-out-paths",
-        "--rebuild",
     ];
 
     if let Some(cachix_settings) = cachix_settings {
