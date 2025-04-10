@@ -106,7 +106,6 @@ pub struct Cache {
 #[derive(Debug, Deserialize)]
 pub struct OutputConfig {
     #[serde_as(as = "DisplayFromStr")]
-    #[serde(rename = "output")]
     name: SymbolicOutput,
 
     #[serde_as(as = "Vec<DisplayFromStr>")]
@@ -124,7 +123,8 @@ pub struct Config {
     build: Build,
     #[serde(default)]
     env: HashMap<String, String>,
-    #[serde(default, rename = "output")]
+
+    #[serde(rename = "output")]
     outputs: Vec<OutputConfig>,
 }
 

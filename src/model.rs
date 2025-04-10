@@ -73,7 +73,8 @@ impl Display for Derivation {
 pub enum Status {
     Skipped,
     Success,
-    Fail,
+    Failed,
+    Dryrun,
 }
 
 impl Display for Status {
@@ -81,9 +82,27 @@ impl Display for Status {
         let s = match self {
             Self::Skipped => "skipped",
             Self::Success => "success",
-            Self::Fail => "failed",
+            Self::Failed => "failed",
+            Self::Dryrun => "skipped (dryrun)",
         };
         write!(f, "{s}")
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum BuildStatus {
+    Success,
+    Failed,
+    Dryrun,
+}
+
+impl BuildStatus {
+    pub fn to_output_status(self) -> Status {
+        match self {
+            Self::Success => Status::Success,
+            Self::Failed => Status::Failed,
+            Self::Dryrun => Status::Dryrun,
+        }
     }
 }
 

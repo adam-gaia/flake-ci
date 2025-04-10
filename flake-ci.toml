@@ -6,6 +6,7 @@ cache-name = "agaia"
 publish = true
 
 [env]
+# TODO: setting these actually does nothing, need to set in nix builds
 RUST_BACKTRACE = "1"
 CARGO_TERM_COLOR = "1"
 CLICOLOR = "1"
@@ -25,10 +26,21 @@ artifacts = ["packages.*.!formatter"]
 systems = ["x86_64-linux", "x86_64-darwin"]
 
 [[output]]
-output = "packages.*.default"
+name = "packages.*.default"
 extra-prereqs = [
   "checks.*.cargo-clippy",
   "checks.*.cargo-audit",
   "checks.*.cargo-deny",
   "checks.*.cargo-nextest",
+  "checks.*.fake",
 ]
+
+[[output]]
+name = "checks.*.fake"
+extra-prereqs = ["checks.*.foo", "checks.*.bar"]
+
+#[[output]]
+# TODO
+# CI requires this package
+#name = "devShells.*.ci"
+#extra-prereqs = ["packages.*.default"]

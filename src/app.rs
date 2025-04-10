@@ -15,11 +15,9 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use which::which;
 mod summary;
+use crate::model::Derivation;
 use summary::Summary;
 use winnow::prelude::*;
-mod drvtree;
-use crate::model::Derivation;
-use drvtree::DrvTree;
 
 const CACHIX_AUTH_KEY: &str = "CACHIX_AUTH_TOKEN";
 const CACHIX_SIGNING_KEY: &str = "CACHIX_SIGNING_KEY";
@@ -65,48 +63,6 @@ fn setup_cachix(cachix: &Path, cache: &str, dry_run: bool) -> Result<()> {
     Ok(())
 }
 
-fn find_check_type(input: &str) -> Result<&'static str> {
-    let mut input = input.to_lowercase();
-    if let Some(stripped) = input.strip_suffix('s') {
-        input = stripped.to_string();
-    };
-
-    let res = match input.as_str() {
-        "pkg" | "package" => "packages",
-        "devshell" | "shell" => "devShells",
-        "nixo" | "nixosconfig" | "nixosconfiguration" => "nixosConfigurations",
-        "darwin" | "darwinconfig" | "darwinconfiguration" => "darwinConfigurations",
-        "home" | "homeconfig" | "homeconfiguration" => "homeConfigurations",
-        "system" | "systemconfig" | "systemconfiguration" => "systemConfigs",
-        _ => bail!("Unknown check type"),
-    };
-
-    Ok(res)
-}
-
-fn get_type_of_check(derivation: &Derivation) -> Result<&'static str> {
-    let name = derivation.name();
-    let Some((prefix, _)) = name.split_once('-') else {
-        bail!("TODO: better error message");
-    };
-
-    find_check_type(&prefix)
-}
-
-fn parse_check_name(check: &Derivation) -> Result<(&'static str, &str)> {
-    assert!(
-        check.output() == "checks",
-        "Passed a non-check to parse_check_type()"
-    );
-
-    let Some((prefix, name)) = check.name().split_once('-') else {
-        bail!("TODO: better err message");
-    };
-
-    let ttype = find_check_type(prefix)?;
-    Ok((ttype, name))
-}
-
 fn check_checks_derivation(check: &Derivation, drv: &Derivation) -> bool {
     if check.system() == drv.system() {
         if let Some((prefix, suffix)) = check.name().split_once('-') {
@@ -147,9 +103,6 @@ impl App {
     ) -> Result<Self> {
         let output_dir = working_dir.join(config.artifact_dir());
         let nix_result_dir = working_dir.join("result");
-        let Ok(nix) = which::which("nix") else {
-            bail!("Unable to find nix on the $PATH");
-        };
 
         let cachix = if no_cachix {
             None

@@ -6,6 +6,7 @@ use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process::Command;
 
+use crate::model::BuildStatus;
 use crate::model::Status;
 
 pub fn run(exec: &Path, args: &[&str]) -> Result<String> {
@@ -42,7 +43,7 @@ pub fn run_stream(
     args: &[&str],
     env: Option<&HashMap<String, String>>,
     dry_run: bool,
-) -> Result<Status> {
+) -> Result<BuildStatus> {
     debug!("Running command: {} {args:?}", exec.display());
     let mut cmd = &mut Command::new(exec);
     cmd = cmd.args(args);
@@ -51,11 +52,11 @@ pub fn run_stream(
     };
     let status = if dry_run {
         println!("[DRYRUN] Would run '{cmd:?}'");
-        Status::Skipped
+        BuildStatus::Dryrun
     } else if cmd.status()?.success() {
-        Status::Success
+        BuildStatus::Success
     } else {
-        Status::Fail
+        BuildStatus::Failed
     };
     Ok(status)
 }
